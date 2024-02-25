@@ -1,18 +1,41 @@
 # Nih Faust Stereo Fx Jit
 
-Very much work in progress
+Very much work in progress. Script to load is fixed at build time for now.
 
 ## Building
 
-After installing [Rust](https://rustup.rs/), you can compile Nih Faust Stereo Fx Jit as follows:
+First install [Rust](https://rustup.rs/) and [Faust](https://faust.grame.fr/downloads/).
+
+For now, Faust paths need to be provided through environment variables at build
+time:
+
+- `FAUST_LIB_PATH`: where to look for the `libfaust` shared library
+- `FAUST_HEADERS_PATH`: where to look for the Faust C/CPP headers
+- `DSP_LIBS_PATH`: where the plugin should look for the [Faust DSP
+  libraries](https://faustlibraries.grame.fr/), so your script can import
+  `stdfaust.lib`
+- `DSP_SCRIPT_PATH`: which Faust script to load when the plugin starts
+
+You can set these env vars via command line, or edit the `.cargo/config.toml`
+before building.
+
+Then, you can the compile and package the CLAP, VST and standalone plugins with:
 
 ```shell
 cargo xtask bundle nih_faust_stereo_fx_jit --release
 ```
 
-For now, it requires that Faust is pre-installed on your system (and expects
-default Windows paths, to be changed)
+Running the standalone version of the plugin is just:
+
+```shell
+cargo run --release
+```
+
+**Important:** on Windows you should also add the `FAUST_LIB_PATH` to your
+regular `PATH` (Faust installer does not add it automatically). Else the plugin
+will crash at runtime because it won't be able to find `libfaust.dll`.
 
 ## TODO
 
-- Remove hardcoded Faust paths
+- Build a small GUI to allow to select which DSP file to load, and to overload
+  the `FAUST_DSP_LIB_PATH` given at build time

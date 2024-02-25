@@ -1,0 +1,14 @@
+[alias]
+xtask = "run --package xtask --release --"
+
+[env]
+# env vars will be set unless they are already present
+
+# Needed at build time:
+FAUST_LIB_PATH = "C:/Program Files/Faust/lib"
+FAUST_HEADERS_PATH = "C:/Program Files/Faust/include"
+
+# Actually needed at run time, but not convenient to set at runtime when used as
+# a plugin, so integrated in the generated plugin for now:
+DSP_LIBS_PATH = "C:/Program Files/Faust/share/faust"
+DSP_SCRIPT_PATH = "C:/test.dsp"

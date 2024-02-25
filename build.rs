@@ -3,13 +3,16 @@ use std::path::PathBuf;
 
 fn main() {
     // Tell cargo to look for shared libraries in the specified directory
-    println!("cargo:rustc-link-search=C:/Program Files/Faust/lib");
+    println!(
+        "cargo:rustc-link-search={}",
+        env::var("FAUST_LIB_PATH").expect("env var FAUST_LIB_PATH not found")
+    );
 
     // Tell cargo to tell rustc to link the system libfaust shared library.
     println!("cargo:rustc-link-lib=faust");
 
     // Tell cargo to invalidate the built crate whenever the wrapper changes
-    println!("cargo:rerun-if-changed=wrapper.hpp");
+    println!("cargo:rerun-if-changed=src/wrapper.hpp");
 
     // The bindgen::Builder is the main entry point
     // to bindgen, and lets you build up options for
@@ -17,8 +20,11 @@ fn main() {
     let bindings = bindgen::Builder::default()
         // The input header we would like to generate
         // bindings for.
-        .header("wrapper.hpp")
-        .clang_arg("-IC:/Program Files/Faust/include")
+        .header("src/wrapper.hpp")
+        .clang_arg(format!(
+            "-I{}",
+            env::var("FAUST_HEADERS_PATH").expect("env var FAUST_HEADERS_PATH not found")
+        ))
         // Tell cargo to invalidate the built crate whenever any of the
         // included header files changed.
         .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
