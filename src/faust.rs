@@ -31,8 +31,6 @@ impl Drop for SingletonDsp {
     }
 }
 
-const DSP_LIBS_PATH: &str = std::env!("DSP_LIBS_PATH");
-
 impl SingletonDsp {
     fn dealloc_if_needed(&mut self) {
         unsafe {
@@ -55,10 +53,16 @@ impl SingletonDsp {
     }
 
     /// Load a faust .dsp file and initialize the DSP
-    pub fn init_from_file(&mut self, path: &str, sample_rate: i32) -> Result<(), String> {
+    pub fn init_from_file(
+        &mut self,
+        script_path: &str,
+        dsp_libs_path: &str,
+        sample_rate: f32,
+    ) -> Result<(), String> {
         self.dealloc_if_needed();
-        let [path_c, target, arg0, arg1, arg2] = [path, "", "--in-place", "-I", DSP_LIBS_PATH]
-            .map(|p| CString::new(p).expect(&format!("{} failed to convert to CString", p)));
+        let [path_c, target, arg0, arg1, arg2] =
+            [script_path, "", "--in-place", "-I", dsp_libs_path]
+                .map(|p| CString::new(p).expect(&format!("{} failed to convert to CString", p)));
         let mut arg_ptrs = [arg0.as_ptr(), arg1.as_ptr(), arg2.as_ptr()];
         let mut error_msg_buf = [0; 4096];
         let fac_ptr = unsafe {
@@ -82,7 +86,7 @@ impl SingletonDsp {
             *self.factory.get_mut() = fac_ptr;
             let inst_ptr = unsafe { createCDSPInstance(fac_ptr) };
             unsafe {
-                initCDSPInstance(inst_ptr, sample_rate);
+                initCDSPInstance(inst_ptr, sample_rate as i32);
             };
             *self.instance.get_mut() = inst_ptr;
             let is_stereo = unsafe {
@@ -97,7 +101,7 @@ impl SingletonDsp {
         }
     }
 
-    pub fn compute(&self, buf: &mut Buffer) {
+    pub fn compute(&mut self, buf: &mut Buffer) {
         assert!(self.ready(), "DSP not loaded");
         //println!("compute called with {} samples", buf.samples());
         let buf_slice = buf.as_slice();

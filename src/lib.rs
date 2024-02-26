@@ -1,24 +1,49 @@
-use faust::SingletonDsp;
+use std::sync::{Arc, Mutex, RwLock};
+
 use nih_plug::prelude::*;
-use std::sync::{Arc, Mutex};
+use nih_plug_egui::{
+    create_egui_editor,
+    egui::{self},
+    EguiState,
+};
+
+use egui_file::FileDialog;
+
+use faust::SingletonDsp;
+
 pub mod faust;
 
 pub struct NihFaustStereoFxJit {
+    sample_rate: f32,
     params: Arc<NihFaustStereoFxJitParams>,
     dsp: Arc<Mutex<SingletonDsp>>,
+    plugin_state: Arc<RwLock<PluginState>>,
 }
 
 #[derive(Params)]
 struct NihFaustStereoFxJitParams {
     #[id = "gain"]
     pub gain: FloatParam,
+
+    #[persist = "editor-state"]
+    editor_state: Arc<EguiState>,
+}
+
+struct PluginState {
+    current_dsp_script: std::path::PathBuf,
+    current_dsp_lib_path: std::path::PathBuf,
 }
 
 impl Default for NihFaustStereoFxJit {
     fn default() -> Self {
         Self {
+            sample_rate: 0.0,
             params: Arc::new(NihFaustStereoFxJitParams::default()),
             dsp: Arc::new(Mutex::new(SingletonDsp::default())),
+            plugin_state: Arc::new(RwLock::new(PluginState {
+                current_dsp_script: DEFAULT_DSP_SCRIPT_PATH.into(),
+                current_dsp_lib_path: DEFAULT_DSP_LIBS_PATH.into(),
+            })),
         }
     }
 }
@@ -28,11 +53,21 @@ impl Default for NihFaustStereoFxJitParams {
         Self {
             gain: FloatParam::new("Gain", 1.0, FloatRange::Linear { min: 0.0, max: 1.0 })
                 .with_smoother(SmoothingStyle::Linear(50.0)),
+
+            editor_state: EguiState::from_size(800, 700),
         }
     }
 }
 
 const DEFAULT_DSP_SCRIPT_PATH: &str = std::env!("DSP_SCRIPT_PATH");
+const DEFAULT_DSP_LIBS_PATH: &str = std::env!("DSP_LIBS_PATH");
+
+struct GuiState {
+    dsp_script_dialog: Option<FileDialog>,
+    dsp_lib_path_dialog: Option<FileDialog>,
+    plugin_state: Arc<RwLock<PluginState>>,
+    dsp: Arc<Mutex<SingletonDsp>>,
+}
 
 impl Plugin for NihFaustStereoFxJit {
     const NAME: &'static str = "Nih Faust Stereo Fx Jit";
@@ -71,6 +106,87 @@ impl Plugin for NihFaustStereoFxJit {
     // tasks.
     type BackgroundTask = ();
 
+    fn editor(&mut self, _async_executor: AsyncExecutor<Self>) -> Option<Box<dyn Editor>> {
+        let init_gui_state = GuiState {
+            dsp_script_dialog: None,
+            dsp_lib_path_dialog: None,
+            plugin_state: self.plugin_state.clone(),
+            dsp: self.dsp.clone(),
+        };
+        let sample_rate = self.sample_rate;
+        create_egui_editor(
+            self.params.editor_state.clone(),
+            init_gui_state,
+            |_, _| {},
+            move |egui_ctx, _setter, gui_state| {
+                let mut should_reload = false;
+
+                egui::CentralPanel::default().show(egui_ctx, |ui| {
+                    let mut plugin_state = gui_state
+                        .plugin_state
+                        .write()
+                        .expect("GUI update closure couldn't get PluginState mutex");
+
+                    ui.label(format!(
+                        "Loaded DSP script: {}",
+                        plugin_state.current_dsp_script.display()
+                    ));
+                    if (ui.button("Set DSP script")).clicked() {
+                        let mut dialog =
+                            FileDialog::open_file(Some(plugin_state.current_dsp_script.clone()));
+                        dialog.open();
+                        gui_state.dsp_script_dialog = Some(dialog);
+                    }
+                    if let Some(dialog) = &mut gui_state.dsp_script_dialog {
+                        if dialog.show(egui_ctx).selected() {
+                            if let Some(file) = dialog.path() {
+                                plugin_state.current_dsp_script = file.to_path_buf();
+                                should_reload = true;
+                            }
+                        }
+                    }
+
+                    ui.label(format!(
+                        "Faust DSP libraries path: {}",
+                        plugin_state.current_dsp_lib_path.display()
+                    ));
+                    if (ui.button("Set Faust libraries path")).clicked() {
+                        let mut dialog =
+                            FileDialog::select_folder(Some(plugin_state.current_dsp_lib_path.clone()));
+                        dialog.open();
+                        gui_state.dsp_lib_path_dialog = Some(dialog);
+                    }
+                    if let Some(dialog) = &mut gui_state.dsp_lib_path_dialog {
+                        if dialog.show(egui_ctx).selected() {
+                            if let Some(file) = dialog.path() {
+                                plugin_state.current_dsp_lib_path = file.to_path_buf();
+                                should_reload = true;
+                            }
+                        }
+                    }
+                });
+
+                // DSP loading is done as part of the GUI thread. Not ideal if
+                // the loading takes time, would be better to spawn a thread to
+                // do the reload
+                if should_reload {
+                    let plugin_state = gui_state.plugin_state.read().unwrap();
+                    gui_state
+                        .dsp
+                        .lock()
+                        .unwrap()
+                        .init_from_file(
+                            plugin_state.current_dsp_script.to_str().unwrap(),
+                            plugin_state.current_dsp_lib_path.to_str().unwrap(),
+                            sample_rate,
+                        )
+                        .unwrap();
+                    println!("Loaded DSP script `{:?}'", plugin_state.current_dsp_script);
+                }
+            },
+        )
+    }
+
     fn params(&self) -> Arc<dyn Params> {
         self.params.clone()
     }
@@ -84,8 +200,14 @@ impl Plugin for NihFaustStereoFxJit {
         // Resize buffers and perform other potentially expensive initialization operations here.
         // The `reset()` function is always called right after this function. You can remove this
         // function if you do not need it.
-        let mut dsp = self.dsp.lock().expect("Couldn't acquire dsp");
-        match dsp.init_from_file(DEFAULT_DSP_SCRIPT_PATH, buffer_config.sample_rate as i32) {
+        self.sample_rate = buffer_config.sample_rate;
+        let mut dsp = self.dsp.lock().unwrap();
+        let state = self.plugin_state.read().unwrap();
+        match dsp.init_from_file(
+            state.current_dsp_script.to_str().unwrap(),
+            state.current_dsp_lib_path.to_str().unwrap(),
+            self.sample_rate,
+        ) {
             Err(s) => panic!("DSP init failed with: {}", s),
             _ => true,
         }
@@ -102,7 +224,7 @@ impl Plugin for NihFaustStereoFxJit {
         _aux: &mut AuxiliaryBuffers,
         _context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
-        let dsp = self.dsp.lock().expect("Couldn't acquire dsp");
+        let mut dsp = self.dsp.lock().expect("Couldn't acquire dsp");
         dsp.compute(buffer);
 
         for channel_samples in buffer.iter_samples() {
