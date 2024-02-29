@@ -9,7 +9,8 @@ First install [Rust](https://rustup.rs/) and [Faust](https://faust.grame.fr/down
 For now, Faust paths need to be provided through environment variables at build
 time:
 
-- `FAUST_LIB_PATH`: where to look for the `libfaust` shared library
+- `FAUST_LIB_PATH`: where to look for `libfaust`. It will link statically with
+  `libfaustwithllvm` in order to generate a self-contained plugin
 - `FAUST_HEADERS_PATH`: where to look for the Faust C/CPP headers
 - `DSP_LIBS_PATH`: where the plugin should look for the [Faust DSP
   libraries](https://faustlibraries.grame.fr/), so your script can import
@@ -30,10 +31,6 @@ Running the standalone version of the plugin is just:
 ```shell
 cargo run --release
 ```
-
-**Important:** on Windows you should also add the `FAUST_LIB_PATH` to your
-regular `PATH` (Faust installer does not add it automatically). Else the plugin
-will crash at runtime because it won't be able to find `libfaust.dll`.
 
 ## TODO
 

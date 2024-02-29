@@ -8,8 +8,8 @@ fn main() {
         env::var("FAUST_LIB_PATH").expect("env var FAUST_LIB_PATH not found")
     );
 
-    // Tell cargo to tell rustc to link the system libfaust shared library.
-    println!("cargo:rustc-link-lib=faust");
+    // Tell cargo to tell rustc to statically link with libfaust and llvm
+    println!("cargo:rustc-link-lib=static=libfaustwithllvm");
 
     // Tell cargo to invalidate the built crate whenever the wrapper changes
     println!("cargo:rerun-if-changed=src/wrapper.hpp");
