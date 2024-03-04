@@ -11,6 +11,7 @@ use std::{
 
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
+#[derive(Debug)]
 /// RAII interface to faust DSP factories and instances
 pub struct SingletonDsp {
     factory: AtomicPtr<llvm_dsp_factory>,
@@ -84,7 +85,7 @@ impl SingletonDsp {
     }
 
     pub fn process_buffer(&mut self, buf: &mut Buffer) {
-        //println!("compute called with {} samples", buf.samples());
+        //log!(Level::Trace, "process_buffer called with {} samples", buf.samples());
         let buf_slice = buf.as_slice();
         let mut buf_ptrs = [buf_slice[0].as_mut_ptr(), buf_slice[1].as_mut_ptr()];
         // We used --in-place when creating the DSP, so input and output should

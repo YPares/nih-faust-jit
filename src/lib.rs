@@ -1,6 +1,9 @@
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{atomic::Ordering, Arc, Mutex, RwLock};
 
-use nih_plug::prelude::*;
+use nih_plug::{
+    log::{log, Level},
+    prelude::*,
+};
 use nih_plug_egui::{create_egui_editor, egui, EguiState};
 
 use egui_file::FileDialog;
@@ -11,6 +14,7 @@ use faust::SingletonDsp;
 
 pub mod faust;
 
+#[derive(Debug)]
 enum DspState {
     NoDspScript,
     Loaded(SingletonDsp),
@@ -23,27 +27,8 @@ struct SelectedPaths {
     dsp_lib_path: std::path::PathBuf,
 }
 
-impl DspState {
-    /// Try to load a SingletonDsp from the currently selected paths
-    fn from_paths(paths: &SelectedPaths, sample_rate: f32) -> Self {
-        match &paths.dsp_script {
-            Some(script_path) => {
-                match SingletonDsp::from_file(
-                    script_path.to_str().unwrap(),
-                    paths.dsp_lib_path.to_str().unwrap(),
-                    sample_rate,
-                ) {
-                    Err(msg) => Self::Failed(msg),
-                    Ok(dsp) => Self::Loaded(dsp),
-                }
-            }
-            None => Self::NoDspScript,
-        }
-    }
-}
-
 pub struct NihFaustStereoFxJit {
-    sample_rate: f32,
+    sample_rate: Arc<AtomicF32>,
     params: Arc<NihFaustStereoFxJitParams>,
     dsp_state: Arc<Mutex<DspState>>,
 }
@@ -63,7 +48,7 @@ struct NihFaustStereoFxJitParams {
 impl Default for NihFaustStereoFxJit {
     fn default() -> Self {
         Self {
-            sample_rate: 0.0,
+            sample_rate: Arc::new(AtomicF32::new(0.0)),
             params: Arc::new(NihFaustStereoFxJitParams::default()),
             dsp_state: Arc::new(Mutex::new(DspState::NoDspScript)),
         }
@@ -91,6 +76,10 @@ struct GuiState {
     dsp_lib_path_dialog: Option<FileDialog>,
     selected_paths: Arc<RwLock<SelectedPaths>>,
     dsp_state: Arc<Mutex<DspState>>,
+}
+
+pub enum Tasks {
+    ReloadDsp,
 }
 
 impl Plugin for NihFaustStereoFxJit {
@@ -121,29 +110,59 @@ impl Plugin for NihFaustStereoFxJit {
 
     const SAMPLE_ACCURATE_AUTOMATION: bool = true;
 
-    // If the plugin can send or receive SysEx messages, it can define a type to wrap around those
-    // messages here. The type implements the `SysExMessage` trait, which allows conversion to and
-    // from plain byte buffers.
     type SysExMessage = ();
-    // More advanced plugins can use this to run expensive background tasks. See the field's
-    // documentation for more information. `()` means that the plugin does not have any background
-    // tasks.
-    type BackgroundTask = ();
+
+    type BackgroundTask = Tasks;
+
+    fn task_executor(&mut self) -> TaskExecutor<Self> {
+        let sample_rate = Arc::clone(&self.sample_rate);
+        // This function may be called before self.sample_rate has been properly
+        // initialized, and the task executor closure cannot borrow self. This
+        // is why the sample rate is stored in an Arc<AtomicF32> which we can
+        // read later, when it is actually time to load a DSP
+        let selected_paths = Arc::clone(&self.params.selected_paths);
+        let dsp_state = Arc::clone(&self.dsp_state);
+        Box::new(move |task| match task {
+            Tasks::ReloadDsp => {
+                let cur_paths = &selected_paths.read().unwrap();
+                let cur_sr = sample_rate.load(Ordering::Relaxed);
+                let new_dsp_state = match &cur_paths.dsp_script {
+                    Some(script_path) => {
+                        match SingletonDsp::from_file(
+                            script_path.to_str().unwrap(),
+                            cur_paths.dsp_lib_path.to_str().unwrap(),
+                            cur_sr,
+                        ) {
+                            Err(msg) => DspState::Failed(msg),
+                            Ok(dsp) => DspState::Loaded(dsp),
+                        }
+                    }
+                    None => DspState::NoDspScript,
+                };
+                log!(
+                    Level::Info,
+                    "Loaded {:?} with SR {} => {:?}",
+                    cur_paths,
+                    cur_sr,
+                    new_dsp_state
+                );
+                *dsp_state.lock().unwrap() = new_dsp_state;
+            }
+        })
+    }
 
     fn initialize(
         &mut self,
         _audio_io_layout: &AudioIOLayout,
         buffer_config: &BufferConfig,
-        _context: &mut impl InitContext<Self>,
+        context: &mut impl InitContext<Self>,
     ) -> bool {
         // Resize buffers and perform other potentially expensive initialization operations here.
         // The `reset()` function is always called right after this function. You can remove this
         // function if you do not need it.
-        self.sample_rate = buffer_config.sample_rate;
-        *self.dsp_state.lock().unwrap() = DspState::from_paths(
-            &self.params.selected_paths.read().unwrap(),
-            self.sample_rate,
-        );
+        self.sample_rate
+            .store(buffer_config.sample_rate, Ordering::Relaxed);
+        context.execute(Tasks::ReloadDsp);
         true
     }
 
@@ -152,25 +171,23 @@ impl Plugin for NihFaustStereoFxJit {
         // allocate. You can remove this function if you do not need it.
     }
 
-    fn editor(&mut self, _async_executor: AsyncExecutor<Self>) -> Option<Box<dyn Editor>> {
+    fn editor(&mut self, async_executor: AsyncExecutor<Self>) -> Option<Box<dyn Editor>> {
         let init_gui_state = GuiState {
             dsp_script_dialog: None,
             dsp_lib_path_dialog: None,
-            selected_paths: self.params.selected_paths.clone(),
-            dsp_state: self.dsp_state.clone(),
+            selected_paths: Arc::clone(&self.params.selected_paths),
+            dsp_state: Arc::clone(&self.dsp_state),
         };
-        // We copy sample_rate in the stack so it can be moved in the closure
-        // below:
-        let sample_rate = self.sample_rate;
         create_egui_editor(
-            self.params.editor_state.clone(),
+            Arc::clone(&self.params.editor_state),
             init_gui_state,
             |_, _| {},
             move |egui_ctx, _setter, gui_state| {
                 let mut should_reload = false;
-                let mut selected_paths = gui_state.selected_paths.write().unwrap();
 
                 egui::CentralPanel::default().show(egui_ctx, |ui| {
+                    let mut selected_paths = gui_state.selected_paths.write().unwrap();
+
                     match &selected_paths.dsp_script {
                         Some(path) => ui.label(format!("DSP script: {}", path.display())),
                         None => ui.colored_label(egui::Color32::YELLOW, "No DSP script selected"),
@@ -213,14 +230,8 @@ impl Plugin for NihFaustStereoFxJit {
                     }
                 });
 
-                // DSP loading is done as part of the GUI thread. Not ideal if
-                // the JIT compilation takes time, would be better to spawn a
-                // thread to do the reload
                 if should_reload {
-                    // We swap the current DSP state with the new one. This
-                    // calls drop on the current DSP if it was loaded:
-                    *gui_state.dsp_state.lock().unwrap() =
-                        DspState::from_paths(&selected_paths, sample_rate);
+                    async_executor.execute_background(Tasks::ReloadDsp);
                 }
             },
         )
