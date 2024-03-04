@@ -71,13 +71,6 @@ impl Default for NihFaustStereoFxJitParams {
     }
 }
 
-struct GuiState {
-    dsp_script_dialog: Option<FileDialog>,
-    dsp_lib_path_dialog: Option<FileDialog>,
-    selected_paths: Arc<RwLock<SelectedPaths>>,
-    dsp_state: Arc<Mutex<DspState>>,
-}
-
 pub enum Tasks {
     ReloadDsp,
 }
@@ -115,23 +108,23 @@ impl Plugin for NihFaustStereoFxJit {
     type BackgroundTask = Tasks;
 
     fn task_executor(&mut self) -> TaskExecutor<Self> {
-        let sample_rate = Arc::clone(&self.sample_rate);
+        let sample_rate_arc = Arc::clone(&self.sample_rate);
         // This function may be called before self.sample_rate has been properly
         // initialized, and the task executor closure cannot borrow self. This
         // is why the sample rate is stored in an Arc<AtomicF32> which we can
         // read later, when it is actually time to load a DSP
-        let selected_paths = Arc::clone(&self.params.selected_paths);
-        let dsp_state = Arc::clone(&self.dsp_state);
+        let selected_paths_arc = Arc::clone(&self.params.selected_paths);
+        let dsp_state_arc = Arc::clone(&self.dsp_state);
         Box::new(move |task| match task {
             Tasks::ReloadDsp => {
-                let cur_paths = &selected_paths.read().unwrap();
-                let cur_sr = sample_rate.load(Ordering::Relaxed);
-                let new_dsp_state = match &cur_paths.dsp_script {
+                let selected_paths = &selected_paths_arc.read().unwrap();
+                let sample_rate = sample_rate_arc.load(Ordering::Relaxed);
+                let new_dsp_state = match &selected_paths.dsp_script {
                     Some(script_path) => {
                         match SingletonDsp::from_file(
                             script_path.to_str().unwrap(),
-                            cur_paths.dsp_lib_path.to_str().unwrap(),
-                            cur_sr,
+                            selected_paths.dsp_lib_path.to_str().unwrap(),
+                            sample_rate,
                         ) {
                             Err(msg) => DspState::Failed(msg),
                             Ok(dsp) => DspState::Loaded(dsp),
@@ -142,11 +135,11 @@ impl Plugin for NihFaustStereoFxJit {
                 log!(
                     Level::Info,
                     "Loaded {:?} with SR {} => {:?}",
-                    cur_paths,
-                    cur_sr,
+                    selected_paths,
+                    sample_rate,
                     new_dsp_state
                 );
-                *dsp_state.lock().unwrap() = new_dsp_state;
+                *dsp_state_arc.lock().unwrap() = new_dsp_state;
             }
         })
     }
@@ -155,14 +148,14 @@ impl Plugin for NihFaustStereoFxJit {
         &mut self,
         _audio_io_layout: &AudioIOLayout,
         buffer_config: &BufferConfig,
-        context: &mut impl InitContext<Self>,
+        init_ctx: &mut impl InitContext<Self>,
     ) -> bool {
         // Resize buffers and perform other potentially expensive initialization operations here.
         // The `reset()` function is always called right after this function. You can remove this
         // function if you do not need it.
         self.sample_rate
             .store(buffer_config.sample_rate, Ordering::Relaxed);
-        context.execute(Tasks::ReloadDsp);
+        init_ctx.execute(Tasks::ReloadDsp);
         true
     }
 
@@ -172,21 +165,25 @@ impl Plugin for NihFaustStereoFxJit {
     }
 
     fn editor(&mut self, async_executor: AsyncExecutor<Self>) -> Option<Box<dyn Editor>> {
-        let init_gui_state = GuiState {
-            dsp_script_dialog: None,
-            dsp_lib_path_dialog: None,
-            selected_paths: Arc::clone(&self.params.selected_paths),
-            dsp_state: Arc::clone(&self.dsp_state),
-        };
+        #[cfg(debug_assertions)]
+        let sample_rate_arc = Arc::clone(&self.sample_rate);
+
+        let selected_paths_arc = Arc::clone(&self.params.selected_paths);
+        let dsp_state_arc = Arc::clone(&self.dsp_state);
+
         create_egui_editor(
             Arc::clone(&self.params.editor_state),
-            init_gui_state,
+            (None, None),
             |_, _| {},
-            move |egui_ctx, _setter, gui_state| {
-                let mut should_reload = false;
-
+            move |egui_ctx, _param_setter, (dsp_script_dialog, dsp_lib_path_dialog)| {
                 egui::CentralPanel::default().show(egui_ctx, |ui| {
-                    let mut selected_paths = gui_state.selected_paths.write().unwrap();
+                    #[cfg(debug_assertions)]
+                    ui.colored_label(
+                        egui::Color32::LIGHT_BLUE,
+                        format!("Sample rate: {}", sample_rate_arc.load(Ordering::Relaxed)),
+                    );
+
+                    let mut selected_paths = selected_paths_arc.write().unwrap();
 
                     match &selected_paths.dsp_script {
                         Some(path) => ui.label(format!("DSP script: {}", path.display())),
@@ -195,13 +192,13 @@ impl Plugin for NihFaustStereoFxJit {
                     if (ui.button("Set DSP script")).clicked() {
                         let mut dialog = FileDialog::open_file(selected_paths.dsp_script.clone());
                         dialog.open();
-                        gui_state.dsp_script_dialog = Some(dialog);
+                        *dsp_script_dialog = Some(dialog);
                     }
-                    if let Some(dialog) = &mut gui_state.dsp_script_dialog {
+                    if let Some(dialog) = dsp_script_dialog {
                         if dialog.show(egui_ctx).selected() {
                             if let Some(file) = dialog.path() {
                                 selected_paths.dsp_script = Some(file.to_path_buf());
-                                should_reload = true;
+                                async_executor.execute_background(Tasks::ReloadDsp);
                             }
                         }
                     }
@@ -214,25 +211,21 @@ impl Plugin for NihFaustStereoFxJit {
                         let mut dialog =
                             FileDialog::select_folder(Some(selected_paths.dsp_lib_path.clone()));
                         dialog.open();
-                        gui_state.dsp_lib_path_dialog = Some(dialog);
+                        *dsp_lib_path_dialog = Some(dialog);
                     }
-                    if let Some(dialog) = &mut gui_state.dsp_lib_path_dialog {
+                    if let Some(dialog) = dsp_lib_path_dialog {
                         if dialog.show(egui_ctx).selected() {
                             if let Some(file) = dialog.path() {
                                 selected_paths.dsp_lib_path = file.to_path_buf();
-                                should_reload = true;
+                                async_executor.execute_background(Tasks::ReloadDsp);
                             }
                         }
                     }
 
-                    if let DspState::Failed(faust_err_msg) = &*gui_state.dsp_state.lock().unwrap() {
+                    if let DspState::Failed(faust_err_msg) = &*dsp_state_arc.lock().unwrap() {
                         ui.colored_label(egui::Color32::LIGHT_RED, faust_err_msg);
                     }
                 });
-
-                if should_reload {
-                    async_executor.execute_background(Tasks::ReloadDsp);
-                }
             },
         )
     }
