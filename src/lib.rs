@@ -5,6 +5,8 @@ use nih_plug_egui::{create_egui_editor, egui, EguiState};
 
 use egui_file::FileDialog;
 
+use serde::{Deserialize, Serialize};
+
 use faust::SingletonDsp;
 
 pub mod faust;
@@ -13,7 +15,6 @@ pub struct NihFaustStereoFxJit {
     sample_rate: f32,
     params: Arc<NihFaustStereoFxJitParams>,
     dsp: Arc<Mutex<Option<SingletonDsp>>>,
-    plugin_state: Arc<RwLock<PluginState>>,
 }
 
 #[derive(Params)]
@@ -23,9 +24,13 @@ struct NihFaustStereoFxJitParams {
 
     #[persist = "editor-state"]
     editor_state: Arc<EguiState>,
+
+    #[persist = "current-paths"]
+    paths: Arc<RwLock<CurrentPaths>>,
 }
 
-struct PluginState {
+#[derive(Debug, Serialize, Deserialize)]
+struct CurrentPaths {
     current_dsp_script: Option<std::path::PathBuf>,
     current_dsp_lib_path: std::path::PathBuf,
 }
@@ -36,10 +41,6 @@ impl Default for NihFaustStereoFxJit {
             sample_rate: 0.0,
             params: Arc::new(NihFaustStereoFxJitParams::default()),
             dsp: Arc::new(Mutex::new(None)),
-            plugin_state: Arc::new(RwLock::new(PluginState {
-                current_dsp_script: None,
-                current_dsp_lib_path: env!("DSP_LIBS_PATH").into(),
-            })),
         }
     }
 }
@@ -51,6 +52,11 @@ impl Default for NihFaustStereoFxJitParams {
                 .with_smoother(SmoothingStyle::Linear(50.0)),
 
             editor_state: EguiState::from_size(800, 700),
+
+            paths: Arc::new(RwLock::new(CurrentPaths {
+                current_dsp_script: None,
+                current_dsp_lib_path: env!("DSP_LIBS_PATH").into(),
+            })),
         }
     }
 }
@@ -59,7 +65,7 @@ struct GuiState {
     dsp_script_dialog: Option<FileDialog>,
     dsp_lib_path_dialog: Option<FileDialog>,
     faust_err_msg: Option<String>,
-    plugin_state: Arc<RwLock<PluginState>>,
+    paths: Arc<RwLock<CurrentPaths>>,
     dsp: Arc<Mutex<Option<SingletonDsp>>>,
 }
 
@@ -105,7 +111,7 @@ impl Plugin for NihFaustStereoFxJit {
             dsp_script_dialog: None,
             dsp_lib_path_dialog: None,
             faust_err_msg: None,
-            plugin_state: self.plugin_state.clone(),
+            paths: self.params.paths.clone(),
             dsp: self.dsp.clone(),
         };
         // We copy sample_rate in the stack so it can be moved in the closure
@@ -120,15 +126,16 @@ impl Plugin for NihFaustStereoFxJit {
 
                 egui::CentralPanel::default().show(egui_ctx, |ui| {
                     let mut plugin_state = gui_state
-                        .plugin_state
+                        .paths
                         .write()
                         .expect("GUI update closure couldn't get PluginState mutex");
 
                     match &plugin_state.current_dsp_script {
                         Some(path) => ui.label(format!("DSP script: {}", path.display())),
-                        None => {
-                            ui.colored_label(egui::Color32::YELLOW, "BYPASSED (no DSP script loaded)")
-                        }
+                        None => ui.colored_label(
+                            egui::Color32::YELLOW,
+                            "BYPASSED (no DSP script loaded)",
+                        ),
                     };
 
                     if (ui.button("Set DSP script")).clicked() {
@@ -172,27 +179,25 @@ impl Plugin for NihFaustStereoFxJit {
                 });
 
                 // DSP loading is done as part of the GUI thread. Not ideal if
-                // the loading takes time, would be better to spawn a thread to
-                // do the reload
+                // the JIT compilation takes time, would be better to spawn a
+                // thread to do the reload
                 if should_reload {
-                    let plugin_state = gui_state.plugin_state.read().unwrap();
-                    let res = SingletonDsp::from_file(
-                        plugin_state
-                            .current_dsp_script
-                            .as_ref()
-                            .expect("current_dsp_script not set")
-                            .to_str()
-                            .unwrap(),
-                        plugin_state.current_dsp_lib_path.to_str().unwrap(),
-                        sample_rate,
-                    );
-                    match res {
+                    let plugin_state = gui_state.paths.read().unwrap();
+                    let dsp_script_path = plugin_state
+                        .current_dsp_script
+                        .as_ref()
+                        .unwrap()
+                        .to_str()
+                        .unwrap();
+                    let faust_dsp_lib_path = plugin_state.current_dsp_lib_path.to_str().unwrap();
+                    match SingletonDsp::from_file(dsp_script_path, faust_dsp_lib_path, sample_rate)
+                    {
                         Ok(new_dsp) => {
                             // We swap the current DSP with the new one. This
                             // calls drop on the current DSP:
                             *gui_state.dsp.lock().unwrap() = Some(new_dsp);
                             gui_state.faust_err_msg = None;
-                            println!("Loaded DSP script {:?}", plugin_state.current_dsp_script);
+                            println!("Loaded DSP script `{}'", dsp_script_path);
                         }
                         Err(msg) => {
                             // We don't touch the current DSP and report the
@@ -219,7 +224,7 @@ impl Plugin for NihFaustStereoFxJit {
         // The `reset()` function is always called right after this function. You can remove this
         // function if you do not need it.
         self.sample_rate = buffer_config.sample_rate;
-        let state = self.plugin_state.read().unwrap();
+        let state = self.params.paths.read().unwrap();
         match &state.current_dsp_script {
             Some(script_path) => {
                 match SingletonDsp::from_file(

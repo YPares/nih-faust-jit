@@ -2,7 +2,8 @@
 
 A plugin to load Faust dsp files and JIT-compile them with LLVM. A simple GUI is
 provided to select which script to load and where to look for the Faust
-libraries that this script may import.
+libraries that this script may import. The selected DSP script is saved as part
+of the plugin state and therefore is saved with your DAW project.
 
 ## Building
 
