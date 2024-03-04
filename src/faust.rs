@@ -83,7 +83,7 @@ impl SingletonDsp {
         }
     }
 
-    pub fn compute(&mut self, buf: &mut Buffer) {
+    pub fn process_buffer(&mut self, buf: &mut Buffer) {
         //println!("compute called with {} samples", buf.samples());
         let buf_slice = buf.as_slice();
         let mut buf_ptrs = [buf_slice[0].as_mut_ptr(), buf_slice[1].as_mut_ptr()];
