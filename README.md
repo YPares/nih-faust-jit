@@ -9,8 +9,9 @@ First install [Rust](https://rustup.rs/) and [Faust](https://faust.grame.fr/down
 For now, Faust paths need to be provided through environment variables at build
 time:
 
-- `FAUST_LIB_PATH`: where to look for `libfaust`. It will link statically with
+- `FAUST_LIB`: which faust lib to link with. By default it statically links with
   `libfaustwithllvm` in order to generate a self-contained plugin
+- `FAUST_LIB_PATH`: where to look for `libfaust`
 - `FAUST_HEADERS_PATH`: where to look for the Faust C/CPP headers
 - `DSP_LIBS_PATH`: where the plugin should look for the [Faust DSP
   libraries](https://faustlibraries.grame.fr/), so your script can import
@@ -18,7 +19,8 @@ time:
 - `DSP_SCRIPT_PATH`: which Faust script to load when the plugin starts
 
 You can set these env vars via command line, or edit the `.cargo/config.toml`
-before building.
+before building. Check `.github/workflows/rust.yml` to see e.g. how these are
+overriden for building on Ubuntu.
 
 Then, you can the compile and package the CLAP, VST and standalone plugins with:
 

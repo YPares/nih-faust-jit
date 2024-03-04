@@ -9,7 +9,10 @@ fn main() {
     );
 
     // Tell cargo to tell rustc to statically link with libfaust and llvm
-    println!("cargo:rustc-link-lib=static=libfaustwithllvm");
+    println!(
+        "cargo:rustc-link-lib={}",
+        env::var("FAUST_LIB").expect("env var FAUST_LIB not found")
+    );
 
     // Tell cargo to invalidate the built crate whenever the wrapper changes
     println!("cargo:rerun-if-changed=src/wrapper.hpp");

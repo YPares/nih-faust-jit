@@ -5,6 +5,7 @@ xtask = "run --package xtask --release --"
 # env vars will be set unless they are already present
 
 # Needed at build time:
+FAUST_LIB = "static=libfaustwithllvm"
 FAUST_LIB_PATH = "C:/Program Files/Faust/lib"
 FAUST_HEADERS_PATH = "C:/Program Files/Faust/include"
 

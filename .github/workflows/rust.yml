@@ -1,0 +1,28 @@
+name: Rust
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+env:
+  CARGO_TERM_COLOR: always
+  FAUST_LIB: "faust"
+  FAUST_LIB_PATH: "/usr/lib/x86_64-linux-gnu"
+  FAUST_HEADERS_PATH: "/usr/include"
+  DSP_LIBS_PATH: "/usr/share/faust"
+  DSP_SCRIPT_PATH: "/dummy.dsp"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: Setup
+      run: sudo apt-get update && sudo apt-get install faust libx11-dev libxcb-icccm4-dev libx11-xcb-dev libxcb-dri2-0-dev libgl1-mesa-dev alsa libasound2-dev libjack-dev
+    - name: Build
+      run: cargo build --verbose
+    - name: Run tests
+      run: cargo test --verbose
