@@ -16,50 +16,32 @@ pub struct SingletonDsp {
     instance: AtomicPtr<llvm_dsp>,
 }
 
-impl Default for SingletonDsp {
-    fn default() -> Self {
-        Self {
-            factory: AtomicPtr::new(null_mut()),
-            instance: AtomicPtr::new(null_mut()),
-        }
-    }
-}
-
 impl Drop for SingletonDsp {
     fn drop(&mut self) {
-        self.dealloc_if_needed();
-    }
-}
-
-impl SingletonDsp {
-    fn dealloc_if_needed(&mut self) {
         unsafe {
             let inst = self.instance.get_mut();
             if !inst.is_null() {
                 deleteCDSPInstance(*inst);
-                *inst = null_mut();
             }
             let fact = self.factory.get_mut();
             if !fact.is_null() {
                 deleteCDSPFactory(*fact);
-                *fact = null_mut();
             }
         }
     }
+}
 
-    /// Tells if the DSP is ready to process audio
-    pub fn ready(&self) -> bool {
-        !self.instance.load(Ordering::Relaxed).is_null()
-    }
-
+impl SingletonDsp {
     /// Load a faust .dsp file and initialize the DSP
-    pub fn init_from_file(
-        &mut self,
+    pub fn from_file(
         script_path: &str,
         dsp_libs_path: &str,
         sample_rate: f32,
-    ) -> Result<(), String> {
-        self.dealloc_if_needed();
+    ) -> Result<Self, String> {
+        let mut this = Self {
+            factory: AtomicPtr::new(null_mut()),
+            instance: AtomicPtr::new(null_mut()),
+        };
         let [path_c, target, arg0, arg1, arg2] =
             [script_path, "", "--in-place", "-I", dsp_libs_path]
                 .map(|p| CString::new(p).expect(&format!("{} failed to convert to CString", p)));
@@ -83,26 +65,24 @@ impl SingletonDsp {
                 .map_err(|s| format!("Could not parse Faust err msg as utf8: {}", s))?
                 .to_string())
         } else {
-            *self.factory.get_mut() = fac_ptr;
+            *this.factory.get_mut() = fac_ptr;
             let inst_ptr = unsafe { createCDSPInstance(fac_ptr) };
             unsafe {
                 initCDSPInstance(inst_ptr, sample_rate as i32);
             };
-            *self.instance.get_mut() = inst_ptr;
+            *this.instance.get_mut() = inst_ptr;
             let is_stereo = unsafe {
                 getNumInputsCDSPInstance(inst_ptr) == 2 && getNumOutputsCDSPInstance(inst_ptr) == 2
             };
             if is_stereo {
-                Ok(())
+                Ok(this)
             } else {
-                self.dealloc_if_needed();
                 Err("DSP must have 2 input & 2 output chans".to_string())
             }
         }
     }
 
     pub fn compute(&mut self, buf: &mut Buffer) {
-        assert!(self.ready(), "DSP not loaded");
         //println!("compute called with {} samples", buf.samples());
         let buf_slice = buf.as_slice();
         let mut buf_ptrs = [buf_slice[0].as_mut_ptr(), buf_slice[1].as_mut_ptr()];
