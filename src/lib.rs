@@ -26,7 +26,7 @@ struct NihFaustStereoFxJitParams {
 }
 
 struct PluginState {
-    current_dsp_script: std::path::PathBuf,
+    current_dsp_script: Option<std::path::PathBuf>,
     current_dsp_lib_path: std::path::PathBuf,
 }
 
@@ -37,8 +37,8 @@ impl Default for NihFaustStereoFxJit {
             params: Arc::new(NihFaustStereoFxJitParams::default()),
             dsp: Arc::new(Mutex::new(None)),
             plugin_state: Arc::new(RwLock::new(PluginState {
-                current_dsp_script: DEFAULT_DSP_SCRIPT_PATH.into(),
-                current_dsp_lib_path: DEFAULT_DSP_LIBS_PATH.into(),
+                current_dsp_script: None,
+                current_dsp_lib_path: env!("DSP_LIBS_PATH").into(),
             })),
         }
     }
@@ -54,9 +54,6 @@ impl Default for NihFaustStereoFxJitParams {
         }
     }
 }
-
-const DEFAULT_DSP_SCRIPT_PATH: &str = std::env!("DSP_SCRIPT_PATH");
-const DEFAULT_DSP_LIBS_PATH: &str = std::env!("DSP_LIBS_PATH");
 
 struct GuiState {
     dsp_script_dialog: Option<FileDialog>,
@@ -127,20 +124,23 @@ impl Plugin for NihFaustStereoFxJit {
                         .write()
                         .expect("GUI update closure couldn't get PluginState mutex");
 
-                    ui.label(format!(
-                        "Loaded DSP script: {}",
-                        plugin_state.current_dsp_script.display()
-                    ));
+                    match &plugin_state.current_dsp_script {
+                        Some(path) => ui.label(format!("DSP script: {}", path.display())),
+                        None => {
+                            ui.colored_label(egui::Color32::YELLOW, "BYPASSED (no DSP script loaded)")
+                        }
+                    };
+
                     if (ui.button("Set DSP script")).clicked() {
                         let mut dialog =
-                            FileDialog::open_file(Some(plugin_state.current_dsp_script.clone()));
+                            FileDialog::open_file(plugin_state.current_dsp_script.clone());
                         dialog.open();
                         gui_state.dsp_script_dialog = Some(dialog);
                     }
                     if let Some(dialog) = &mut gui_state.dsp_script_dialog {
                         if dialog.show(egui_ctx).selected() {
                             if let Some(file) = dialog.path() {
-                                plugin_state.current_dsp_script = file.to_path_buf();
+                                plugin_state.current_dsp_script = Some(file.to_path_buf());
                                 should_reload = true;
                             }
                         }
@@ -177,7 +177,12 @@ impl Plugin for NihFaustStereoFxJit {
                 if should_reload {
                     let plugin_state = gui_state.plugin_state.read().unwrap();
                     let res = SingletonDsp::from_file(
-                        plugin_state.current_dsp_script.to_str().unwrap(),
+                        plugin_state
+                            .current_dsp_script
+                            .as_ref()
+                            .expect("current_dsp_script not set")
+                            .to_str()
+                            .unwrap(),
                         plugin_state.current_dsp_lib_path.to_str().unwrap(),
                         sample_rate,
                     );
@@ -215,14 +220,19 @@ impl Plugin for NihFaustStereoFxJit {
         // function if you do not need it.
         self.sample_rate = buffer_config.sample_rate;
         let state = self.plugin_state.read().unwrap();
-        match SingletonDsp::from_file(
-            state.current_dsp_script.to_str().unwrap(),
-            state.current_dsp_lib_path.to_str().unwrap(),
-            self.sample_rate,
-        ) {
-            Err(s) => panic!("DSP init failed with: {}", s),
-            Ok(dsp) => *self.dsp.lock().unwrap() = Some(dsp),
-        };
+        match &state.current_dsp_script {
+            Some(script_path) => {
+                match SingletonDsp::from_file(
+                    script_path.to_str().unwrap(),
+                    state.current_dsp_lib_path.to_str().unwrap(),
+                    self.sample_rate,
+                ) {
+                    Err(s) => panic!("DSP init failed with: {}", s),
+                    Ok(dsp) => *self.dsp.lock().unwrap() = Some(dsp),
+                };
+            }
+            None => {}
+        }
         true
     }
 

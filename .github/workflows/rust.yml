@@ -12,7 +12,6 @@ env:
   FAUST_LIB_PATH: "/usr/lib/x86_64-linux-gnu"
   FAUST_HEADERS_PATH: "/usr/include"
   DSP_LIBS_PATH: "/usr/share/faust"
-  DSP_SCRIPT_PATH: "/dummy.dsp"
 
 jobs:
   build:

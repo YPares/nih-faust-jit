@@ -1,6 +1,8 @@
 # Nih Faust Stereo Fx Jit
 
-Very much work in progress. Initial script to load is fixed at build time for now.
+A plugin to load Faust dsp files and JIT-compile them with LLVM. A simple GUI is
+provided to select which script to load and where to look for the Faust
+libraries that this script may import.
 
 ## Building
 
@@ -9,14 +11,14 @@ First install [Rust](https://rustup.rs/) and [Faust](https://faust.grame.fr/down
 For now, Faust paths need to be provided through environment variables at build
 time:
 
-- `FAUST_LIB`: which faust lib to link with. By default it statically links with
-  `libfaustwithllvm` in order to generate a self-contained plugin
-- `FAUST_LIB_PATH`: where to look for `libfaust`
+- `FAUST_LIB`: which `libfaustXXX` to link with. By default it statically links
+  with `libfaustwithllvm` in order to generate a self-contained plugin (more
+  convenient on Windows)
+- `FAUST_LIB_PATH`: where to look for `libfaustXXX`
 - `FAUST_HEADERS_PATH`: where to look for the Faust C/CPP headers
-- `DSP_LIBS_PATH`: where the plugin should look for the [Faust DSP
+- `DSP_LIBS_PATH`: where the plugin should look by default for the [Faust DSP
   libraries](https://faustlibraries.grame.fr/), so your script can import
-  `stdfaust.lib`
-- `DSP_SCRIPT_PATH`: which Faust script to load when the plugin starts
+  `stdfaust.lib`. This can then be overriden at runtime with the plugin's GUI
 
 You can set these env vars via command line, or edit the `.cargo/config.toml`
 before building. Check `.github/workflows/rust.yml` to see e.g. how these are
