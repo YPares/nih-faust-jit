@@ -190,7 +190,11 @@ impl Plugin for NihFaustStereoFxJit {
                         None => ui.colored_label(egui::Color32::YELLOW, "No DSP script selected"),
                     };
                     if (ui.button("Set DSP script")).clicked() {
-                        let mut dialog = FileDialog::open_file(selected_paths.dsp_script.clone());
+                        let presel = selected_paths
+                            .dsp_script
+                            .as_ref()
+                            .unwrap_or(&selected_paths.dsp_lib_path);
+                        let mut dialog = FileDialog::open_file(Some(presel.clone()));
                         dialog.open();
                         *dsp_script_dialog = Some(dialog);
                     }
