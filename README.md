@@ -1,6 +1,6 @@
 # Nih Faust Stereo Fx Jit
 
-Very much work in progress. Script to load is fixed at build time for now.
+Very much work in progress. Initial script to load is fixed at build time for now.
 
 ## Building
 
@@ -31,8 +31,3 @@ Running the standalone version of the plugin is just:
 ```shell
 cargo run --release
 ```
-
-## TODO
-
-- Build a small GUI to allow to select which DSP file to load, and to overload
-  the `FAUST_DSP_LIB_PATH` given at build time

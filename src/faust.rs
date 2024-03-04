@@ -11,6 +11,7 @@ use std::{
 
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
+/// RAII interface to faust DSP factories and instances
 pub struct SingletonDsp {
     factory: AtomicPtr<llvm_dsp_factory>,
     instance: AtomicPtr<llvm_dsp>,

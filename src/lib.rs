@@ -1,11 +1,7 @@
 use std::sync::{Arc, Mutex, RwLock};
 
 use nih_plug::prelude::*;
-use nih_plug_egui::{
-    create_egui_editor,
-    egui::{self},
-    EguiState,
-};
+use nih_plug_egui::{create_egui_editor, egui, EguiState};
 
 use egui_file::FileDialog;
 
@@ -65,6 +61,7 @@ const DEFAULT_DSP_LIBS_PATH: &str = std::env!("DSP_LIBS_PATH");
 struct GuiState {
     dsp_script_dialog: Option<FileDialog>,
     dsp_lib_path_dialog: Option<FileDialog>,
+    faust_err_msg: Option<String>,
     plugin_state: Arc<RwLock<PluginState>>,
     dsp: Arc<Mutex<Option<SingletonDsp>>>,
 }
@@ -110,6 +107,7 @@ impl Plugin for NihFaustStereoFxJit {
         let init_gui_state = GuiState {
             dsp_script_dialog: None,
             dsp_lib_path_dialog: None,
+            faust_err_msg: None,
             plugin_state: self.plugin_state.clone(),
             dsp: self.dsp.clone(),
         };
@@ -167,6 +165,10 @@ impl Plugin for NihFaustStereoFxJit {
                             }
                         }
                     }
+
+                    if let Some(faust_err_msg) = &gui_state.faust_err_msg {
+                        ui.colored_label(egui::Color32::LIGHT_RED, faust_err_msg);
+                    }
                 });
 
                 // DSP loading is done as part of the GUI thread. Not ideal if
@@ -180,13 +182,18 @@ impl Plugin for NihFaustStereoFxJit {
                         sample_rate,
                     );
                     match res {
-                        Ok(dsp) => {
-                            // We swap the previously loaded DSP with the new
-                            // one. This calls drop on the previous DSP:
-                            *gui_state.dsp.lock().unwrap() = Some(dsp);
-                            println!("Loaded DSP script `{:?}'", plugin_state.current_dsp_script);
+                        Ok(new_dsp) => {
+                            // We swap the current DSP with the new one. This
+                            // calls drop on the current DSP:
+                            *gui_state.dsp.lock().unwrap() = Some(new_dsp);
+                            gui_state.faust_err_msg = None;
+                            println!("Loaded DSP script {:?}", plugin_state.current_dsp_script);
                         }
-                        Err(msg) => panic!("{}", msg),
+                        Err(msg) => {
+                            // We don't touch the current DSP and report the
+                            // error:
+                            gui_state.faust_err_msg = Some(msg)
+                        }
                     }
                 }
             },
