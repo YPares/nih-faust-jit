@@ -1,21 +1,26 @@
-#![allow(non_upper_case_globals)]
-#![allow(non_camel_case_types)]
-#![allow(non_snake_case)]
-
 use nih_plug::buffer::Buffer;
 use std::{
-    ffi::{CStr, CString},
+    ffi::{c_void, CStr, CString},
     ptr::null_mut,
     sync::atomic::{AtomicPtr, Ordering},
 };
 
-include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
+mod c {
+    #![allow(non_upper_case_globals)]
+    #![allow(non_camel_case_types)]
+    #![allow(non_snake_case)]
+    #![allow(dead_code)]
+
+    include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
+
+    // Functions prefixed with 'w_' are those defined here in wrapper.cpp
+}
 
 #[derive(Debug)]
 /// RAII interface to faust DSP factories and instances
 pub struct SingletonDsp {
-    factory: AtomicPtr<llvm_dsp_factory>,
-    instance: AtomicPtr<llvm_dsp>,
+    factory: AtomicPtr<c::llvm_dsp_factory>,
+    instance: AtomicPtr<c::llvm_dsp>,
 }
 
 impl Drop for SingletonDsp {
@@ -23,11 +28,11 @@ impl Drop for SingletonDsp {
         unsafe {
             let inst = self.instance.get_mut();
             if !inst.is_null() {
-                deleteCDSPInstance(*inst);
+                c::w_deleteDSPInstance(*inst);
             }
             let fact = self.factory.get_mut();
             if !fact.is_null() {
-                deleteCDSPFactory(*fact);
+                c::deleteDSPFactory(*fact);
             }
         }
     }
@@ -44,19 +49,14 @@ impl SingletonDsp {
             factory: AtomicPtr::new(null_mut()),
             instance: AtomicPtr::new(null_mut()),
         };
-        let [path_c, target, arg0, arg1, arg2] =
-            [script_path, "", "--in-place", "-I", dsp_libs_path]
-                .map(|p| CString::new(p).expect(&format!("{} failed to convert to CString", p)));
-        let mut arg_ptrs = [arg0.as_ptr(), arg1.as_ptr(), arg2.as_ptr()];
+        let [script_path_c, dsp_libs_path_c] = [script_path, dsp_libs_path]
+            .map(|s| CString::new(s).expect(&format!("{} failed to convert to CString", s)));
         let mut error_msg_buf = [0; 4096];
         let fac_ptr = unsafe {
-            createCDSPFactoryFromFile(
-                path_c.as_ptr(),
-                arg_ptrs.len() as i32,
-                arg_ptrs.as_mut_ptr(),
-                target.as_ptr(),
+            c::w_createDSPFactoryFromFile(
+                script_path_c.as_ptr(),
+                dsp_libs_path_c.as_ptr(),
                 error_msg_buf.as_mut_ptr(),
-                -1,
             )
         };
 
@@ -68,13 +68,14 @@ impl SingletonDsp {
                 .to_string())
         } else {
             *this.factory.get_mut() = fac_ptr;
-            let inst_ptr = unsafe { createCDSPInstance(fac_ptr) };
+            let inst_ptr = unsafe { c::llvm_dsp_factory_createDSPInstance(fac_ptr as *mut c_void) };
             unsafe {
-                initCDSPInstance(inst_ptr, sample_rate as i32);
+                c::llvm_dsp_init(inst_ptr as *mut c_void, sample_rate as i32);
             };
             *this.instance.get_mut() = inst_ptr;
             let is_stereo = unsafe {
-                getNumInputsCDSPInstance(inst_ptr) == 2 && getNumOutputsCDSPInstance(inst_ptr) == 2
+                c::llvm_dsp_getNumInputs(inst_ptr as *mut c_void) == 2
+                    && c::llvm_dsp_getNumOutputs(inst_ptr as *mut c_void) == 2
             };
             if is_stereo {
                 Ok(this)
@@ -91,8 +92,8 @@ impl SingletonDsp {
         // We used --in-place when creating the DSP, so input and output should
         // be the same pointer
         unsafe {
-            computeCDSPInstance(
-                self.instance.load(Ordering::Relaxed),
+            c::llvm_dsp_compute(
+                self.instance.load(Ordering::Relaxed) as *mut c_void,
                 buf.samples() as i32,
                 buf_ptrs.as_mut_ptr(),
                 buf_ptrs.as_mut_ptr(),
