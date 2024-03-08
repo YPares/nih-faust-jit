@@ -5,4 +5,14 @@
 #include <faust/dsp/llvm-dsp.h>
 
 llvm_dsp_factory *w_createDSPFactoryFromFile(const char *filepath, const char *dsp_libs_path, char *err_msg_c);
-void w_deleteDSPInstance(llvm_dsp* dsp);
+void w_deleteDSPInstance(llvm_dsp *dsp);
+
+struct W_MidiHandler;
+
+W_MidiHandler *w_buildMidiUI(llvm_dsp *dsp);
+
+void w_deleteMidiHandler(W_MidiHandler *h);
+
+void w_handleData1(W_MidiHandler *h, double time, int type, int channel, int data1);
+
+void w_handleData2(W_MidiHandler *h, double time, int type, int channel, int data1, int data2);

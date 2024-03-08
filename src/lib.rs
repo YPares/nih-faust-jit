@@ -98,7 +98,7 @@ impl Plugin for NihFaustStereoFxJit {
         names: PortNames::const_default(),
     }];
 
-    const MIDI_INPUT: MidiConfig = MidiConfig::None;
+    const MIDI_INPUT: MidiConfig = MidiConfig::MidiCCs;
     const MIDI_OUTPUT: MidiConfig = MidiConfig::None;
 
     const SAMPLE_ACCURATE_AUTOMATION: bool = true;
@@ -190,11 +190,10 @@ impl Plugin for NihFaustStereoFxJit {
                         None => ui.colored_label(egui::Color32::YELLOW, "No DSP script selected"),
                     };
                     if (ui.button("Set DSP script")).clicked() {
-                        let presel = selected_paths
-                            .dsp_script
-                            .as_ref()
-                            .unwrap_or(&selected_paths.dsp_lib_path);
-                        let mut dialog = FileDialog::open_file(Some(presel.clone()));
+                        let presel = &selected_paths
+                            .dsp_script;
+                            //.as_ref().unwrap_or(&selected_paths.dsp_lib_path);
+                        let mut dialog = FileDialog::open_file(presel.clone());
                         dialog.open();
                         *dsp_script_dialog = Some(dialog);
                     }
@@ -242,10 +241,10 @@ impl Plugin for NihFaustStereoFxJit {
         &mut self,
         buffer: &mut Buffer,
         _aux: &mut AuxiliaryBuffers,
-        _context: &mut impl ProcessContext<Self>,
+        process_ctx: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
         if let DspState::Loaded(dsp) = &mut *self.dsp_state.lock().unwrap() {
-            dsp.process_buffer(buffer);
+            dsp.process_buffer(buffer, process_ctx);
         }
 
         for channel_samples in buffer.iter_samples() {
