@@ -46,7 +46,6 @@ fn main() {
 
     cc::Build::new()
         .cpp(true)
-        //.std("c++20")
         .include(faust_headers_path)
         .file("src/wrapper.cpp")
         .compile("wrapper-lib");

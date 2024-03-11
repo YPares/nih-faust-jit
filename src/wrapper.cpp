@@ -5,7 +5,6 @@
 
 #include <faust/midi/midi.h>
 #include <faust/gui/MidiUI.h>
-#include <iostream>
 
 // These global vars must be declared in the application code. See
 // https://faustdoc.grame.fr/manual/architectures/#multi-controller-and-synchronization
@@ -17,7 +16,7 @@ W_Factory *w_createDSPFactoryFromFile(const char *filepath, const char *dsp_libs
     int argc = 3;
     const char *argv[] = {"--in-place", "-I", dsp_libs_path};
     std::string err_msg;
-    W_Factory *fac = createDSPFactoryFromFile(filepath, argc, argv, "", err_msg, -1);
+    W_Factory *fac = createPolyDSPFactoryFromFile(filepath, argc, argv, "", err_msg, -1);
     strncpy(err_msg_c, err_msg.c_str(), 4096);
     return fac;
 }
@@ -29,7 +28,11 @@ void w_deleteDSPFactory(W_Factory *factory)
 
 W_Dsp *w_createDSPInstance(W_Factory *factory, int sample_rate)
 {
-    auto dsp = factory->createDSPInstance();
+    // We consider the DSP to be an instrument if it has a `declare options
+    // "[nvoices:xxx]"` on top. Else it's considered to be an effect.
+    bool isInstrument = true;
+    int num_voices = 1;
+    W_Dsp *dsp = factory->createPolyDSPInstance(num_voices, isInstrument, false);
     dsp->init(sample_rate);
     return dsp;
 }
@@ -39,7 +42,7 @@ W_DspInfo w_getDSPInfo(W_Dsp *dsp)
     return {dsp->getNumInputs(), dsp->getNumOutputs()};
 }
 
-void w_computeDSP(W_Dsp *dsp, int count, float **buf)
+void w_computeBuffer(W_Dsp *dsp, int count, float **buf)
 {
     // We used --in-place when creating the DSP, so input and output should
     // be the same pointer
@@ -57,7 +60,7 @@ struct W_MidiHandler
     MidiUI *midi_ui;
 };
 
-W_MidiHandler *w_buildMidiUI(W_Dsp *dsp)
+W_MidiHandler *w_buildMidiHandler(W_Dsp *dsp)
 {
     W_MidiHandler *h = new W_MidiHandler();
     h->midi_handler = new midi_handler();
@@ -75,12 +78,18 @@ void w_deleteMidiHandler(W_MidiHandler *h)
     delete h;
 }
 
-void w_handleData1(W_MidiHandler *h, double time, int type, int channel, int data1)
+void w_handleMidiEvent(W_MidiHandler *h, double time, const uint8_t bytes[3])
 {
-    h->midi_handler->handleData1(time, type, channel, data1);
-}
+    // Faust expects status (type) bits _not_ to be shifted, so
+    // we leave status bits in place and just set the other ones
+    // to zero:
+    uint8_t type = bytes[0] & 0b11110000;
+    uint8_t channel = bytes[0] & 0b00001111;
 
-void w_handleData2(W_MidiHandler *h, double time, int type, int channel, int data1, int data2)
-{
-    h->midi_handler->handleData2(time, type, channel, data1, data2);
+    if (type == midi::MIDI_PROGRAM_CHANGE || type == midi::MIDI_AFTERTOUCH)
+        h->midi_handler->handleData1(time, type, channel, bytes[1]);
+    else
+        h->midi_handler->handleData2(time, type, channel, bytes[1], bytes[2]);
+
+    GUI::updateAllGuis();
 }

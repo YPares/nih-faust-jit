@@ -4,6 +4,6 @@ import("stdfaust.lib");
 
 f = hslider("freq",220,50,10000,0.1);
 v = hslider("gain",0.1,0,1,0.01);
-//t = button("gate") : si.smoo;
+t = button("gate") : si.smoo;
 
-process = os.osc(f)*v , os.osc(f)*v;
+process = os.osc(f)*v*t , os.osc(f)*v*t;
