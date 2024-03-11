@@ -6,7 +6,7 @@ use nih_plug::{
     plugin::Plugin,
 };
 use std::{
-    ffi::{c_void, CStr, CString},
+    ffi::{CStr, CString},
     ptr::null_mut,
     sync::atomic::{AtomicPtr, Ordering},
 };
@@ -25,8 +25,8 @@ mod c {
 #[derive(Debug)]
 /// RAII interface to faust DSP factories and instances
 pub struct SingletonDsp {
-    factory: AtomicPtr<c::llvm_dsp_factory>,
-    instance: AtomicPtr<c::llvm_dsp>,
+    factory: AtomicPtr<c::W_Factory>,
+    instance: AtomicPtr<c::W_Dsp>,
     midi_handler: AtomicPtr<c::W_MidiHandler>,
 }
 
@@ -43,7 +43,7 @@ impl Drop for SingletonDsp {
             }
             let factory = self.factory.get_mut();
             if !factory.is_null() {
-                c::deleteDSPFactory(*factory);
+                c::w_deleteDSPFactory(*factory);
             }
         }
     }
@@ -80,20 +80,16 @@ impl SingletonDsp {
                 .to_string())
         } else {
             *this.factory.get_mut() = fac_ptr;
-            let inst_ptr = unsafe { c::llvm_dsp_factory_createDSPInstance(fac_ptr as *mut c_void) };
-            unsafe {
-                c::llvm_dsp_init(inst_ptr as *mut c_void, sample_rate as i32);
-            };
+            let inst_ptr = unsafe { c::w_createDSPInstance(fac_ptr, sample_rate as i32) };
             *this.instance.get_mut() = inst_ptr;
-            let num_inputs = unsafe { c::llvm_dsp_getNumInputs(inst_ptr as *mut c_void) };
-            let num_outputs = unsafe { c::llvm_dsp_getNumOutputs(inst_ptr as *mut c_void) };
-            if num_inputs <= 2 && num_outputs <= 2 {
+            let info = unsafe { c::w_getDSPInfo(inst_ptr) };
+            if info.num_inputs <= 2 && info.num_outputs <= 2 {
                 *this.midi_handler.get_mut() = unsafe { c::w_buildMidiUI(inst_ptr) };
                 Ok(this)
             } else {
                 Err(format!(
                     "DSP has {} input and {} output audio channels. Max is 2 for each",
-                    num_inputs, num_outputs
+                    info.num_inputs, info.num_outputs
                 ))
             }
         }
@@ -145,13 +141,11 @@ impl SingletonDsp {
 
         let buf_slice = audio_buf.as_slice();
         let mut buf_ptrs = [buf_slice[0].as_mut_ptr(), buf_slice[1].as_mut_ptr()];
-        // We used --in-place when creating the DSP, so input and output should
-        // be the same pointer
+
         unsafe {
-            c::llvm_dsp_compute(
-                self.instance.load(Ordering::Relaxed) as *mut c_void,
+            c::w_computeDSP(
+                self.instance.load(Ordering::Relaxed),
                 audio_buf.samples() as i32,
-                buf_ptrs.as_mut_ptr(),
                 buf_ptrs.as_mut_ptr(),
             );
         }

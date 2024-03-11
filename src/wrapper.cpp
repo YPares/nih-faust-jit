@@ -9,21 +9,44 @@
 
 // These global vars must be declared in the application code. See
 // https://faustdoc.grame.fr/manual/architectures/#multi-controller-and-synchronization
-std::list<GUI*> GUI::fGuiList;
+std::list<GUI *> GUI::fGuiList;
 ztimedmap GUI::gTimedZoneMap;
 
-
-llvm_dsp_factory *w_createDSPFactoryFromFile(const char *filepath, const char *dsp_libs_path, char *err_msg_c)
+W_Factory *w_createDSPFactoryFromFile(const char *filepath, const char *dsp_libs_path, char *err_msg_c)
 {
     int argc = 3;
     const char *argv[] = {"--in-place", "-I", dsp_libs_path};
     std::string err_msg;
-    llvm_dsp_factory *fac = createDSPFactoryFromFile(filepath, argc, argv, "", err_msg, -1);
+    W_Factory *fac = createDSPFactoryFromFile(filepath, argc, argv, "", err_msg, -1);
     strncpy(err_msg_c, err_msg.c_str(), 4096);
     return fac;
 }
 
-void w_deleteDSPInstance(llvm_dsp *dsp)
+void w_deleteDSPFactory(W_Factory *factory)
+{
+    delete factory;
+}
+
+W_Dsp *w_createDSPInstance(W_Factory *factory, int sample_rate)
+{
+    auto dsp = factory->createDSPInstance();
+    dsp->init(sample_rate);
+    return dsp;
+}
+
+W_DspInfo w_getDSPInfo(W_Dsp *dsp)
+{
+    return {dsp->getNumInputs(), dsp->getNumOutputs()};
+}
+
+void w_computeDSP(W_Dsp *dsp, int count, float **buf)
+{
+    // We used --in-place when creating the DSP, so input and output should
+    // be the same pointer
+    dsp->compute(count, buf, buf);
+}
+
+void w_deleteDSPInstance(W_Dsp *dsp)
 {
     delete dsp;
 }
@@ -34,7 +57,7 @@ struct W_MidiHandler
     MidiUI *midi_ui;
 };
 
-W_MidiHandler *w_buildMidiUI(llvm_dsp *dsp)
+W_MidiHandler *w_buildMidiUI(W_Dsp *dsp)
 {
     W_MidiHandler *h = new W_MidiHandler();
     h->midi_handler = new midi_handler();
@@ -52,10 +75,12 @@ void w_deleteMidiHandler(W_MidiHandler *h)
     delete h;
 }
 
-void w_handleData1(W_MidiHandler *h, double time, int type, int channel, int data1) {
+void w_handleData1(W_MidiHandler *h, double time, int type, int channel, int data1)
+{
     h->midi_handler->handleData1(time, type, channel, data1);
 }
 
-void w_handleData2(W_MidiHandler *h, double time, int type, int channel, int data1, int data2) {
+void w_handleData2(W_MidiHandler *h, double time, int type, int channel, int data1, int data2)
+{
     h->midi_handler->handleData2(time, type, channel, data1, data2);
 }
