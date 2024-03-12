@@ -27,12 +27,10 @@ fn main() {
         // The input header we would like to generate
         // bindings for.
         .header("src/wrapper.hpp")
-        .clang_arg(format!("-I{}", faust_headers_path))
+        //.clang_arg(format!("-I{}", faust_headers_path))
         // Tell cargo to invalidate the built crate whenever any of the
         // included header files changed.
         .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
-        .allowlist_type("W_.*")
-        .allowlist_function("w_.*")
         // Finish the builder and generate the bindings.
         .generate()
         // Unwrap the Result and panic on failure.

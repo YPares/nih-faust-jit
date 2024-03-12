@@ -3,6 +3,14 @@
 // functions.
 #include "wrapper.hpp"
 
+#include <faust/dsp/libfaust.h>
+#include <faust/dsp/dsp.h>
+#include <faust/dsp/llvm-dsp.h>
+
+#include <faust/dsp/poly-dsp.h>
+#include <iostream>
+#include <faust/dsp/poly-llvm-dsp.h>
+
 #include <faust/midi/midi.h>
 #include <faust/gui/MidiUI.h>
 
@@ -11,22 +19,22 @@
 std::list<GUI *> GUI::fGuiList;
 ztimedmap GUI::gTimedZoneMap;
 
-W_Factory *w_createDSPFactoryFromFile(const char *filepath, const char *dsp_libs_path, char *err_msg_c)
+WFactory *w_createDSPFactoryFromFile(const char *filepath, const char *dsp_libs_path, char *err_msg_c)
 {
     int argc = 3;
     const char *argv[] = {"--in-place", "-I", dsp_libs_path};
     std::string err_msg;
-    W_Factory *fac = createPolyDSPFactoryFromFile(filepath, argc, argv, "", err_msg, -1);
+    WFactory *fac = createPolyDSPFactoryFromFile(filepath, argc, argv, "", err_msg, -1);
     strncpy(err_msg_c, err_msg.c_str(), 4096);
     return fac;
 }
 
-void w_deleteDSPFactory(W_Factory *factory)
+void w_deleteDSPFactory(WFactory *factory)
 {
     delete factory;
 }
 
-W_Dsp *w_createDSPInstance(W_Factory *factory, int sample_rate, int nvoices)
+WDsp *w_createDSPInstance(WFactory *factory, int sample_rate, int nvoices)
 {
     // Whether the DSP voices should be controlled by faust from incoming MIDI
     // notes. If not, they will be all alive (and computed) all the time:
@@ -51,53 +59,53 @@ W_Dsp *w_createDSPInstance(W_Factory *factory, int sample_rate, int nvoices)
         midiControlledVoices = false;
     }
 
-    W_Dsp *dsp = factory->createPolyDSPInstance(nvoices, midiControlledVoices, false);
+    WDsp *dsp = factory->createPolyDSPInstance(nvoices, midiControlledVoices, false);
     dsp->init(sample_rate);
     return dsp;
 }
 
-W_DspInfo w_getDSPInfo(W_Dsp *dsp)
+WDspInfo w_getDSPInfo(WDsp *dsp)
 {
     return {dsp->getNumInputs(), dsp->getNumOutputs()};
 }
 
-void w_computeBuffer(W_Dsp *dsp, int count, float **buf)
+void w_computeBuffer(WDsp *dsp, int count, float **buf)
 {
     // We used --in-place when creating the DSP, so input and output should
     // be the same pointer
     dsp->compute(count, buf, buf);
 }
 
-void w_deleteDSPInstance(W_Dsp *dsp)
+void w_deleteDSPInstance(WDsp *dsp)
 {
     delete dsp;
 }
 
-struct W_MidiHandler
+struct WMidiHandler
 {
-    midi_handler *midi_handler;
-    MidiUI *midi_ui;
+    midi_handler *handler;
+    MidiUI *ui;
 };
 
-W_MidiHandler *w_buildMidiHandler(W_Dsp *dsp)
+WMidiHandler *w_buildMidiHandler(WDsp *dsp)
 {
-    W_MidiHandler *h = new W_MidiHandler();
-    h->midi_handler = new midi_handler();
-    h->midi_ui = new MidiUI(h->midi_handler);
-    dsp->buildUserInterface(h->midi_ui);
-    h->midi_ui->run();
+    WMidiHandler *h = new WMidiHandler();
+    h->handler = new midi_handler();
+    h->ui = new MidiUI(h->handler);
+    dsp->buildUserInterface(h->ui);
+    h->ui->run();
     return h;
 }
 
-void w_deleteMidiHandler(W_MidiHandler *h)
+void w_deleteMidiHandler(WMidiHandler *h)
 {
-    h->midi_ui->stop();
-    delete h->midi_ui;
-    delete h->midi_handler;
+    h->ui->stop();
+    delete h->ui;
+    delete h->handler;
     delete h;
 }
 
-void w_handleMidiEvent(W_MidiHandler *h, double time, const uint8_t bytes[3])
+void w_handleMidiEvent(WMidiHandler *h, double time, const unsigned char bytes[3])
 {
     // Faust expects status (type) bits _not_ to be shifted, so
     // we leave status bits in place and just set the other ones
@@ -106,9 +114,9 @@ void w_handleMidiEvent(W_MidiHandler *h, double time, const uint8_t bytes[3])
     uint8_t channel = bytes[0] & 0b00001111;
 
     if (type == midi::MIDI_PROGRAM_CHANGE || type == midi::MIDI_AFTERTOUCH)
-        h->midi_handler->handleData1(time, type, channel, bytes[1]);
+        h->handler->handleData1(time, type, channel, bytes[1]);
     else
-        h->midi_handler->handleData2(time, type, channel, bytes[1], bytes[2]);
+        h->handler->handleData2(time, type, channel, bytes[1], bytes[2]);
 
     GUI::updateAllGuis();
 }
