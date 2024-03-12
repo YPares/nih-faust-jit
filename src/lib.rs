@@ -29,14 +29,14 @@ struct SelectedPaths {
     dsp_lib_path: std::path::PathBuf,
 }
 
-pub struct NihFaustStereoFxJit {
+pub struct NihFaustJit {
     sample_rate: Arc<AtomicF32>,
-    params: Arc<NihFaustStereoFxJitParams>,
+    params: Arc<NihFaustJitParams>,
     dsp_state: Arc<Mutex<DspState>>,
 }
 
 #[derive(Params)]
-struct NihFaustStereoFxJitParams {
+struct NihFaustJitParams {
     #[id = "gain"]
     pub gain: FloatParam,
 
@@ -50,17 +50,17 @@ struct NihFaustStereoFxJitParams {
     dsp_nvoices: Arc<RwLock<i32>>,
 }
 
-impl Default for NihFaustStereoFxJit {
+impl Default for NihFaustJit {
     fn default() -> Self {
         Self {
             sample_rate: Arc::new(AtomicF32::new(0.0)),
-            params: Arc::new(NihFaustStereoFxJitParams::default()),
+            params: Arc::new(NihFaustJitParams::default()),
             dsp_state: Arc::new(Mutex::new(DspState::NoDspScript)),
         }
     }
 }
 
-impl Default for NihFaustStereoFxJitParams {
+impl Default for NihFaustJitParams {
     fn default() -> Self {
         Self {
             gain: FloatParam::new("Gain", 1.0, FloatRange::Linear { min: 0.0, max: 1.0 })
@@ -117,8 +117,8 @@ fn enum_combobox<T: IntoEnumIterator + PartialEq + std::fmt::Debug>(
         });
 }
 
-impl Plugin for NihFaustStereoFxJit {
-    const NAME: &'static str = "Nih Faust Stereo Fx Jit";
+impl Plugin for NihFaustJit {
+    const NAME: &'static str = "nih-faust-jit";
     const VENDOR: &'static str = "Yves Pares";
     const URL: &'static str = env!("CARGO_PKG_HOMEPAGE");
     const EMAIL: &'static str = "yves.pares@gmail.com";
@@ -345,23 +345,30 @@ impl Plugin for NihFaustStereoFxJit {
     }
 }
 
-impl ClapPlugin for NihFaustStereoFxJit {
-    const CLAP_ID: &'static str = "com.your-domain.nih-faust-stereo-fx-jit";
-    const CLAP_DESCRIPTION: Option<&'static str> = Some("Loading Faust DSP scripts");
+impl ClapPlugin for NihFaustJit {
+    const CLAP_ID: &'static str = "com.ypares.nih-faust-jit";
+    const CLAP_DESCRIPTION: Option<&'static str> = Some("Using jit-compiled Faust DSP scripts");
     const CLAP_MANUAL_URL: Option<&'static str> = Some(Self::URL);
     const CLAP_SUPPORT_URL: Option<&'static str> = None;
 
     // Don't forget to change these features
-    const CLAP_FEATURES: &'static [ClapFeature] = &[ClapFeature::AudioEffect, ClapFeature::Stereo];
+    const CLAP_FEATURES: &'static [ClapFeature] = &[
+        ClapFeature::AudioEffect,
+        ClapFeature::Instrument,
+        ClapFeature::Stereo,
+    ];
 }
 
-impl Vst3Plugin for NihFaustStereoFxJit {
-    const VST3_CLASS_ID: [u8; 16] = *b"NihFaustStereoFx";
+impl Vst3Plugin for NihFaustJit {
+    const VST3_CLASS_ID: [u8; 16] = *b"nih-faust-jit-yp";
 
     // And also don't forget to change these categories
-    const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] =
-        &[Vst3SubCategory::Fx, Vst3SubCategory::Dynamics];
+    const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] = &[
+        Vst3SubCategory::Fx,
+        Vst3SubCategory::Instrument,
+        Vst3SubCategory::Stereo,
+    ];
 }
 
-nih_export_clap!(NihFaustStereoFxJit);
-nih_export_vst3!(NihFaustStereoFxJit);
+nih_export_clap!(NihFaustJit);
+nih_export_vst3!(NihFaustJit);

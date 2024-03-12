@@ -4,5 +4,5 @@
 # [package_name]
 # name = "Human Readable Plugin Name"  # defaults to <package_name>
 
-[nih_faust_stereo_fx_jit]
-name = "Nih Faust Stereo Fx Jit"
+[nih_faust_jit]
+name = "nih-faust-jit"

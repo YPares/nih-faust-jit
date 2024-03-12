@@ -1,4 +1,4 @@
-# Nih Faust Stereo Fx Jit
+# nih-faust-jit
 
 A plugin to load Faust dsp files and JIT-compile them with LLVM. A simple GUI is
 provided to select which script to load and where to look for the Faust
@@ -13,7 +13,8 @@ script contains a line like:
 
 then the script will be considered to be an instrument with `12` voices of
 polyphony. But you can override this via the GUI to force the DSP script type
-and number of voices.
+and number of voices: this is notably useful for scripts that describe
+instruments but do not contain a `[nvoices:xxx]` metadata.
 
 
 ## Building
@@ -37,14 +38,14 @@ time:
   `"stdfaust.lib"`. This can then be overriden at runtime with the plugin's GUI
 
 You can set these env vars via command line, or edit the `.cargo/config.toml`
-before building. You may need to run `cargo clean` after changing them so new values are taken into account.
-Check `.github/workflows/rust.yml` to see e.g. how these are
-overriden for building on Ubuntu.
+before building. You may need to run `cargo clean` after changing them so new
+values are taken into account. Check `.github/workflows/rust.yml` to see e.g.
+how these are overriden for building on Ubuntu.
 
 Then, you can compile and package the VST3 and CLAP plugins with:
 
 ```shell
-cargo xtask bundle nih_faust_stereo_fx_jit --release
+cargo xtask bundle nih_faust_jit --release
 ```
 
 Running the standalone version of the plugin is just:

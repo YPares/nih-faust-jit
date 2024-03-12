@@ -1,5 +1,5 @@
 [package]
-name = "nih_faust_stereo_fx_jit"
+name = "nih_faust_jit"
 version = "0.1.0"
 edition = "2021"
 authors = ["Yves Pares <yves.pares@gmail.com>"]
@@ -14,7 +14,7 @@ members = ["xtask"]
 crate-type = ["cdylib", "lib"]
 
 [[bin]]
-name = "nih_faust_stereo_fx_jit_standalone"
+name = "nih_faust_jit_standalone"
 path = "src/standalone.rs"
 
 [dependencies]
