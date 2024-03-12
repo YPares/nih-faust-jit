@@ -43,8 +43,8 @@ impl Drop for SingletonDsp {
 impl SingletonDsp {
     /// Load a faust .dsp file and initialize the DSP
     ///
-    /// nvoices controls the type of DSP that will be loaded. See
-    /// w_createDSPInstance for more info.
+    /// nvoices controls the both the amount of voices and the type of DSP that
+    /// will be loaded. See w_createDSPInstance for more info.
     pub fn from_file(
         script_path: &str,
         dsp_libs_path: &str,
