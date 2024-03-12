@@ -5,6 +5,17 @@ provided to select which script to load and where to look for the Faust
 libraries that this script may import. The selected DSP script is saved as part
 of the plugin state and therefore is saved with your DAW project.
 
+Both effect and instrument DSPs are supported, with MIDI notes and CCs in both
+cases. The DSP script type is normally detected from its metadata. E.g. if the
+script contains a line like:
+
+`declare options "[midi:on][nvoices:12]";`
+
+then the script will be considered to be an instrument with `12` voices of
+polyphony. But you can override this via the GUI to force the DSP script type
+and number of voices.
+
+
 ## Building
 
 First install [Rust](https://rustup.rs/) and [Faust](https://faust.grame.fr/downloads/).
@@ -30,14 +41,27 @@ before building. You may need to run `cargo clean` after changing them so new va
 Check `.github/workflows/rust.yml` to see e.g. how these are
 overriden for building on Ubuntu.
 
-Then, you can compile and package the CLAP, VST and standalone plugins with:
+Then, you can compile and package the VST3 and CLAP plugins with:
 
 ```shell
 cargo xtask bundle nih_faust_stereo_fx_jit --release
 ```
 
-Running the standalone version of the plugin (with JACK) is just:
+Running the standalone version of the plugin is just:
 
 ```shell
 cargo run --release
 ```
+
+## Known shortcomings
+
+- Scripts are (re)loaded only when clicking on the `Set or reload DSP script`
+  button. Therefore, anytime you modify a parameter on the GUI, don't forget to
+  manually reload the script (just re-select the same file in the file picker).
+- Volume can get high quickly when using polyphonic DSPs, because Faust voices
+  are just summed together. The plugin exposes a Gain parameter to the host.
+  Don't forget to use it if your instrument script doesn't perform some volume
+  reduction already.
+- When using polyphonic instruments, voice stealings will result in small
+  audible clicks in the sound. To be investigated, but for now set your voice
+  number high enough.
