@@ -26,13 +26,32 @@ void w_deleteDSPFactory(W_Factory *factory)
     delete factory;
 }
 
-W_Dsp *w_createDSPInstance(W_Factory *factory, int sample_rate)
+W_Dsp *w_createDSPInstance(W_Factory *factory, int sample_rate, int nvoices)
 {
-    // We consider the DSP to be an instrument if it has a `declare options
-    // "[nvoices:xxx]"` on top. Else it's considered to be an effect.
-    bool isInstrument = true;
-    int num_voices = 1;
-    W_Dsp *dsp = factory->createPolyDSPInstance(num_voices, isInstrument, false);
+    // Whether the DSP voices should be controlled by faust from incoming MIDI
+    // notes. If not, they will be all alive (and computed) all the time:
+    bool midiControlledVoices = true;
+
+    if (nvoices == -1)
+    {
+        // Get 'nvoices' from the metadata declaration. Should no longer be
+        // necessary to do it here manually as from the next Faust release
+        // (createPolyDSPInstance should do it itself).
+        dsp *mono_dsp = factory->fProcessFactory->createDSPInstance();
+        bool _midi_sync;
+        MidiMeta::analyse(mono_dsp, _midi_sync, nvoices);
+        delete mono_dsp;
+    }
+
+    if (nvoices == 0)
+    {
+        // nvoices was set to 0 at call-site OR it was not declared in the
+        // script metadata => we consider the DSP to be a monophonic effect:
+        nvoices = 1;
+        midiControlledVoices = false;
+    }
+
+    W_Dsp *dsp = factory->createPolyDSPInstance(nvoices, midiControlledVoices, false);
     dsp->init(sample_rate);
     return dsp;
 }

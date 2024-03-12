@@ -28,6 +28,8 @@ egui_file = "0.16.*"
 # nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", default_features = false, features = ["assert_process_allocs"] }
 serde = "*"
 crossbeam = "*"
+strum = "0.26.*"
+strum_macros = "0.26.*"
 
 [build-dependencies]
 cc = "1.0.*"

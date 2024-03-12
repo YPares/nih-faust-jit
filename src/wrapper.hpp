@@ -17,7 +17,24 @@ W_Factory *w_createDSPFactoryFromFile(const char *filepath, const char *dsp_libs
 
 void w_deleteDSPFactory(W_Factory* factory);
 
-W_Dsp *w_createDSPInstance(W_Factory* factory, int sample_rate);
+// The `nvoices` parameter can be set to:
+//
+//   -1 => use the `declare options "[nvoices:xxx]"` metadata in the DSP script.
+//   If that script metadata is not present, falls back to the nvoices=0 case.
+//   If it is present, see the nvoices=N case.
+//
+//   0 => the DSP script is considered to be an audio effect (and therefore will
+//   be loaded as an always-alive, monophonic DSP)
+//
+//   N (strictly positive) => the DSP script is considered to be an instrument
+//   with a maximum of N simultaneous voices. Setting N=1 for monophonic
+//   instruments is perfectly okay. IMPORTANT: If the DSP is actually an effect,
+//   that effect will stack as many times as there are MIDI notes being held,
+//   and therefore will just emit nothing if no MIDI note is currently being
+//   sent. This is _not_ an intended feature of the plugin, just a consequence
+//   of how Faust handles polyphony.
+//
+W_Dsp *w_createDSPInstance(W_Factory *factory, int sample_rate, int nvoices);
 
 struct W_DspInfo {
     int num_inputs;

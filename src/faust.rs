@@ -51,10 +51,14 @@ impl Drop for SingletonDsp {
 
 impl SingletonDsp {
     /// Load a faust .dsp file and initialize the DSP
+    /// 
+    /// nvoices controls the type of DSP that will be loaded. See
+    /// w_createDSPInstance for more info.
     pub fn from_file(
         script_path: &str,
         dsp_libs_path: &str,
         sample_rate: f32,
+        nvoices: i32,
     ) -> Result<Self, String> {
         let mut this = Self {
             factory: AtomicPtr::new(null_mut()),
@@ -80,7 +84,7 @@ impl SingletonDsp {
                 .to_string())
         } else {
             *this.factory.get_mut() = fac_ptr;
-            let inst_ptr = unsafe { c::w_createDSPInstance(fac_ptr, sample_rate as i32) };
+            let inst_ptr = unsafe { c::w_createDSPInstance(fac_ptr, sample_rate as i32, nvoices) };
             *this.instance.get_mut() = inst_ptr;
             let info = unsafe { c::w_getDSPInfo(inst_ptr) };
             if info.num_inputs <= 2 && info.num_outputs <= 2 {

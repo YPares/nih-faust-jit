@@ -9,6 +9,8 @@ use nih_plug_egui::{create_egui_editor, egui, EguiState};
 use egui_file::FileDialog;
 
 use serde::{Deserialize, Serialize};
+use strum::IntoEnumIterator;
+use strum_macros::EnumIter;
 
 use faust::SingletonDsp;
 
@@ -43,6 +45,9 @@ struct NihFaustStereoFxJitParams {
 
     #[persist = "selected-paths"]
     selected_paths: Arc<RwLock<SelectedPaths>>,
+
+    #[persist = "dsp-nvoices"]
+    dsp_nvoices: Arc<RwLock<i32>>,
 }
 
 impl Default for NihFaustStereoFxJit {
@@ -67,12 +72,49 @@ impl Default for NihFaustStereoFxJitParams {
                 dsp_script: None,
                 dsp_lib_path: env!("DSP_LIBS_PATH").into(),
             })),
+
+            dsp_nvoices: Arc::new(RwLock::new(-1)),
         }
     }
 }
 
 pub enum Tasks {
     ReloadDsp,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, EnumIter)]
+pub enum DspType {
+    AutoDetect,
+    Effect,
+    Instrument,
+}
+
+impl DspType {
+    fn from_nvoices(nvoices: i32) -> Self {
+        match nvoices {
+            -1 => DspType::AutoDetect,
+            0 => DspType::Effect,
+            n => {
+                assert!(n > 0, "nvoices must be >= -1");
+                DspType::Instrument
+            }
+        }
+    }
+}
+
+fn enum_combobox<T: IntoEnumIterator + PartialEq + std::fmt::Debug>(
+    id: impl std::hash::Hash,
+    selected: &mut T,
+    ui: &mut egui::Ui,
+) {
+    egui::ComboBox::from_id_source(id)
+        .selected_text(format!("{:?}", selected))
+        .show_ui(ui, |ui| {
+            for variant in T::iter() {
+                let s = format!("{:?}", variant);
+                ui.selectable_value(selected, variant, s);
+            }
+        });
 }
 
 impl Plugin for NihFaustStereoFxJit {
@@ -113,18 +155,23 @@ impl Plugin for NihFaustStereoFxJit {
         // initialized, and the task executor closure cannot borrow self. This
         // is why the sample rate is stored in an Arc<AtomicF32> which we can
         // read later, when it is actually time to load a DSP
+
         let selected_paths_arc = Arc::clone(&self.params.selected_paths);
+        let dsp_nvoices_arc = Arc::clone(&self.params.dsp_nvoices);
         let dsp_state_arc = Arc::clone(&self.dsp_state);
+
         Box::new(move |task| match task {
             Tasks::ReloadDsp => {
-                let selected_paths = &selected_paths_arc.read().unwrap();
                 let sample_rate = sample_rate_arc.load(Ordering::Relaxed);
+                let selected_paths = &selected_paths_arc.read().unwrap();
+                let dsp_nvoices = *dsp_nvoices_arc.read().unwrap();
                 let new_dsp_state = match &selected_paths.dsp_script {
                     Some(script_path) => {
                         match SingletonDsp::from_file(
                             script_path.to_str().unwrap(),
                             selected_paths.dsp_lib_path.to_str().unwrap(),
                             sample_rate,
+                            dsp_nvoices,
                         ) {
                             Err(msg) => DspState::Failed(msg),
                             Ok(dsp) => DspState::Loaded(dsp),
@@ -134,9 +181,10 @@ impl Plugin for NihFaustStereoFxJit {
                 };
                 log!(
                     Level::Info,
-                    "Loaded {:?} with SR {} => {:?}",
+                    "Loaded {:?} with sample_rate={}, nvoices={} => {:?}",
                     selected_paths,
                     sample_rate,
+                    dsp_nvoices,
                     new_dsp_state
                 );
                 *dsp_state_arc.lock().unwrap() = new_dsp_state;
@@ -169,6 +217,7 @@ impl Plugin for NihFaustStereoFxJit {
         let sample_rate_arc = Arc::clone(&self.sample_rate);
 
         let selected_paths_arc = Arc::clone(&self.params.selected_paths);
+        let dsp_nvoices_arc = Arc::clone(&self.params.dsp_nvoices);
         let dsp_state_arc = Arc::clone(&self.dsp_state);
 
         create_egui_editor(
@@ -183,13 +232,65 @@ impl Plugin for NihFaustStereoFxJit {
                         format!("Sample rate: {}", sample_rate_arc.load(Ordering::Relaxed)),
                     );
 
+                    // Setting the DSP type and number of voices (if applicable):
+
+                    let mut nvoices = *dsp_nvoices_arc.read().unwrap();
+                    let mut selected_dsp_type = DspType::from_nvoices(nvoices);
+                    let last_dsp_type = selected_dsp_type;
+                    ui.horizontal(|ui| {
+                        ui.label("DSP type:");
+                        enum_combobox("dsp-type-combobox", &mut selected_dsp_type, ui);
+                        match selected_dsp_type {
+                            DspType::AutoDetect => {
+                                nvoices = -1;
+                                ui.label("DSP type and number of voices will be detected from script metadata");
+                            }
+                            DspType::Effect => {
+                                nvoices = 0;
+                                ui.label("DSP will be loaded as monophonic effect");
+                            },
+                            DspType::Instrument => {
+                                if selected_dsp_type != last_dsp_type {
+                                    // If we just changed dsp_type to
+                                    // Instrument, we need to set a default
+                                    // voice number:
+                                    nvoices = 1;
+                                }
+                                ui.add(egui::Slider::new(&mut nvoices, 1..=32).text("voices"));
+                            },
+                        }
+                    });
+                    *dsp_nvoices_arc.write().unwrap() = nvoices;
+
                     let mut selected_paths = selected_paths_arc.write().unwrap();
+
+                    // Setting the Faust libraries path:
+
+                    ui.label(format!(
+                        "Faust DSP libraries path: {}",
+                        selected_paths.dsp_lib_path.display()
+                    ));
+                    if (ui.button("Set Faust libraries path")).clicked() {
+                        let mut dialog =
+                            FileDialog::select_folder(Some(selected_paths.dsp_lib_path.clone()));
+                        dialog.open();
+                        *dsp_lib_path_dialog = Some(dialog);
+                    }
+                    if let Some(dialog) = dsp_lib_path_dialog {
+                        if dialog.show(egui_ctx).selected() {
+                            if let Some(file) = dialog.path() {
+                                selected_paths.dsp_lib_path = file.to_path_buf();
+                            }
+                        }
+                    }
+
+                    // Setting the DSP script and triggering a reload:
 
                     match &selected_paths.dsp_script {
                         Some(path) => ui.label(format!("DSP script: {}", path.display())),
                         None => ui.colored_label(egui::Color32::YELLOW, "No DSP script selected"),
                     };
-                    if (ui.button("Set DSP script")).clicked() {
+                    if (ui.button("Set or reload DSP script")).clicked() {
                         let presel = selected_paths
                             .dsp_script
                             .as_ref()
@@ -207,24 +308,8 @@ impl Plugin for NihFaustStereoFxJit {
                         }
                     }
 
-                    ui.label(format!(
-                        "Faust DSP libraries path: {}",
-                        selected_paths.dsp_lib_path.display()
-                    ));
-                    if (ui.button("Set Faust libraries path")).clicked() {
-                        let mut dialog =
-                            FileDialog::select_folder(Some(selected_paths.dsp_lib_path.clone()));
-                        dialog.open();
-                        *dsp_lib_path_dialog = Some(dialog);
-                    }
-                    if let Some(dialog) = dsp_lib_path_dialog {
-                        if dialog.show(egui_ctx).selected() {
-                            if let Some(file) = dialog.path() {
-                                selected_paths.dsp_lib_path = file.to_path_buf();
-                                async_executor.execute_background(Tasks::ReloadDsp);
-                            }
-                        }
-                    }
+                    // Showing an error if the DSP script compilation reported
+                    // one:
 
                     if let DspState::Failed(faust_err_msg) = &*dsp_state_arc.lock().unwrap() {
                         ui.colored_label(egui::Color32::LIGHT_RED, faust_err_msg);
