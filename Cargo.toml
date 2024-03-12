@@ -20,7 +20,7 @@ path = "src/standalone.rs"
 [dependencies]
 # Remove the `assert_process_allocs` feature to allow allocations on the audio
 # thread in debug builds.
-nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", features = ["assert_process_allocs", "standalone"] }
+nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", features = ["standalone"] } #features = ["assert_process_allocs", "standalone"] }
 nih_plug_egui = { git = "https://github.com/robbert-vdh/nih-plug.git" }
 egui_file = "0.16.*"
 # Uncomment the below line to disable the on-by-default VST3 feature to remove
@@ -28,8 +28,11 @@ egui_file = "0.16.*"
 # nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", default_features = false, features = ["assert_process_allocs"] }
 serde = "*"
 crossbeam = "*"
+strum = "0.26.*"
+strum_macros = "0.26.*"
 
 [build-dependencies]
+cc = "1.0.*"
 bindgen = "0.69.*"
 
 [profile.release]

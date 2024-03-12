@@ -1,8 +1,10 @@
-#![allow(non_upper_case_globals)]
-#![allow(non_camel_case_types)]
-#![allow(non_snake_case)]
-
-use nih_plug::buffer::Buffer;
+use nih_plug::{
+    buffer::Buffer,
+    context::process::ProcessContext,
+    //log::{log, Level},
+    midi::MidiResult,
+    plugin::Plugin,
+};
 use std::{
     ffi::{CStr, CString},
     ptr::null_mut,
@@ -14,20 +16,25 @@ include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 #[derive(Debug)]
 /// RAII interface to faust DSP factories and instances
 pub struct SingletonDsp {
-    factory: AtomicPtr<llvm_dsp_factory>,
-    instance: AtomicPtr<llvm_dsp>,
+    factory: AtomicPtr<WFactory>,
+    instance: AtomicPtr<WDsp>,
+    midi_handler: AtomicPtr<WMidiHandler>,
 }
 
 impl Drop for SingletonDsp {
     fn drop(&mut self) {
         unsafe {
-            let inst = self.instance.get_mut();
-            if !inst.is_null() {
-                deleteCDSPInstance(*inst);
+            let instance = self.instance.get_mut();
+            if !instance.is_null() {
+                w_deleteDSPInstance(*instance);
             }
-            let fact = self.factory.get_mut();
-            if !fact.is_null() {
-                deleteCDSPFactory(*fact);
+            let factory = self.factory.get_mut();
+            if !factory.is_null() {
+                w_deleteDSPFactory(*factory);
+            }
+            let midi_handler = self.midi_handler.get_mut();
+            if !midi_handler.is_null() {
+                w_deleteMidiHandler(*midi_handler);
             }
         }
     }
@@ -35,28 +42,28 @@ impl Drop for SingletonDsp {
 
 impl SingletonDsp {
     /// Load a faust .dsp file and initialize the DSP
+    ///
+    /// nvoices controls the type of DSP that will be loaded. See
+    /// w_createDSPInstance for more info.
     pub fn from_file(
         script_path: &str,
         dsp_libs_path: &str,
         sample_rate: f32,
+        nvoices: i32,
     ) -> Result<Self, String> {
         let mut this = Self {
             factory: AtomicPtr::new(null_mut()),
             instance: AtomicPtr::new(null_mut()),
+            midi_handler: AtomicPtr::new(null_mut()),
         };
-        let [path_c, target, arg0, arg1, arg2] =
-            [script_path, "", "--in-place", "-I", dsp_libs_path]
-                .map(|p| CString::new(p).expect(&format!("{} failed to convert to CString", p)));
-        let mut arg_ptrs = [arg0.as_ptr(), arg1.as_ptr(), arg2.as_ptr()];
+        let [script_path_c, dsp_libs_path_c] = [script_path, dsp_libs_path]
+            .map(|s| CString::new(s).expect(&format!("{} failed to convert to CString", s)));
         let mut error_msg_buf = [0; 4096];
         let fac_ptr = unsafe {
-            createCDSPFactoryFromFile(
-                path_c.as_ptr(),
-                arg_ptrs.len() as i32,
-                arg_ptrs.as_mut_ptr(),
-                target.as_ptr(),
+            w_createDSPFactoryFromFile(
+                script_path_c.as_ptr(),
+                dsp_libs_path_c.as_ptr(),
                 error_msg_buf.as_mut_ptr(),
-                -1,
             )
         };
 
@@ -68,33 +75,52 @@ impl SingletonDsp {
                 .to_string())
         } else {
             *this.factory.get_mut() = fac_ptr;
-            let inst_ptr = unsafe { createCDSPInstance(fac_ptr) };
-            unsafe {
-                initCDSPInstance(inst_ptr, sample_rate as i32);
-            };
+            let inst_ptr = unsafe { w_createDSPInstance(fac_ptr, sample_rate as i32, nvoices) };
             *this.instance.get_mut() = inst_ptr;
-            let is_stereo = unsafe {
-                getNumInputsCDSPInstance(inst_ptr) == 2 && getNumOutputsCDSPInstance(inst_ptr) == 2
-            };
-            if is_stereo {
+            let info = unsafe { w_getDSPInfo(inst_ptr) };
+            if info.num_inputs <= 2 && info.num_outputs <= 2 {
+                *this.midi_handler.get_mut() = unsafe { w_buildMidiHandler(inst_ptr) };
                 Ok(this)
             } else {
-                Err("DSP must have 2 input & 2 output chans".to_string())
+                Err(format!(
+                    "DSP has {} input and {} output audio channels. Max is 2 for each",
+                    info.num_inputs, info.num_outputs
+                ))
             }
         }
     }
 
-    pub fn process_buffer(&mut self, buf: &mut Buffer) {
-        //log!(Level::Trace, "process_buffer called with {} samples", buf.samples());
-        let buf_slice = buf.as_slice();
+    pub fn process_buffer<T: Plugin>(
+        &mut self,
+        audio_buf: &mut Buffer,
+        process_ctx: &mut impl ProcessContext<T>,
+    ) {
+        //log!(Level::Debug, "process_buffer called with {} samples", audio_buf.samples());
+
+        // Handling MIDI events:
+        while let Some(midi_event) = process_ctx.next_event() {
+            //log!(Level::Debug, "Received: {:?}", midi_event);
+            let time = midi_event.timing() as f64;
+            match midi_event.as_midi() {
+                None | Some(MidiResult::SysEx(_, _)) => {
+                    //log!(Level::Debug, "Ignored midi_event");
+                }
+                Some(MidiResult::Basic(bytes)) => {
+                    let handler = self.midi_handler.load(Ordering::Relaxed);
+                    unsafe {
+                        w_handleMidiEvent(handler, time, bytes.as_ptr());
+                    }
+                }
+            }
+        }
+
+        let buf_slice = audio_buf.as_slice();
         let mut buf_ptrs = [buf_slice[0].as_mut_ptr(), buf_slice[1].as_mut_ptr()];
-        // We used --in-place when creating the DSP, so input and output should
-        // be the same pointer
+
         unsafe {
-            computeCDSPInstance(
+            w_computeBuffer(
                 self.instance.load(Ordering::Relaxed),
-                buf.samples() as i32,
-                buf_ptrs.as_mut_ptr(),
+                audio_buf.samples() as i32,
                 buf_ptrs.as_mut_ptr(),
             );
         }

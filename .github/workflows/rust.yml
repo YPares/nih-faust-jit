@@ -20,7 +20,7 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Setup
-      run: sudo apt-get update && sudo apt-get install faust libx11-dev libxcb-icccm4-dev libx11-xcb-dev libxcb-dri2-0-dev libgl1-mesa-dev alsa libasound2-dev libjack-dev
+      run: sudo apt-get update && sudo apt-get install clang faust libx11-dev libxcb-icccm4-dev libx11-xcb-dev libxcb-dri2-0-dev libgl1-mesa-dev alsa libasound2-dev libjack-dev
     - name: Build
       run: cargo build --verbose
     - name: Run tests
