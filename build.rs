@@ -20,9 +20,8 @@ fn main() {
     let faust_headers_path =
         env::var("FAUST_HEADERS_PATH").expect("env var FAUST_HEADERS_PATH not found");
 
-    // The bindgen::Builder is the main entry point
-    // to bindgen, and lets you build up options for
-    // the resulting bindings.
+    // The bindgen::Builder is the main entry point to bindgen, and lets you
+    // build up options for the resulting bindings.
     let bindings = bindgen::Builder::default()
         // The input header we would like to generate
         // bindings for.
@@ -44,6 +43,7 @@ fn main() {
 
     cc::Build::new()
         .cpp(true)
+        .std("c++14")
         .include(faust_headers_path)
         .file("src/wrapper.cpp")
         .compile("wrapper-lib");
