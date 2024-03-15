@@ -4,9 +4,8 @@ use std::{
     ffi::{c_void, CStr},
 };
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum BoxLayout {
-    Tab,
     Horizontal,
     Vertical,
 }
@@ -14,7 +13,6 @@ pub enum BoxLayout {
 impl BoxLayout {
     fn from_decl_type(typ: WWidgetDeclType) -> Self {
         match typ {
-            WWidgetDeclType::TAB_BOX => Self::Tab,
             WWidgetDeclType::HORIZONTAL_BOX => Self::Horizontal,
             WWidgetDeclType::VERTICAL_BOX => Self::Vertical,
             _ => panic!("Not a BoxLayout"),
@@ -22,23 +20,23 @@ impl BoxLayout {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum ButtonLayout {
-    Regular,
+    Trigger,
     Checkbox,
 }
 
 impl ButtonLayout {
     fn from_decl_type(typ: WWidgetDeclType) -> Self {
         match typ {
-            WWidgetDeclType::BUTTON => Self::Regular,
+            WWidgetDeclType::BUTTON => Self::Trigger,
             WWidgetDeclType::CHECK_BUTTON => Self::Checkbox,
             _ => panic!("Not a ButtonLayout"),
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum NumericLayout {
     NumEntry,
     HorizontalSlider,
@@ -56,7 +54,7 @@ impl NumericLayout {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum BargraphLayout {
     Horizontal,
     Vertical,
@@ -75,6 +73,11 @@ impl BargraphLayout {
 /// Lifetime 'a corresponds to that of the dsp object
 #[derive(Debug)]
 pub enum DspUiWidget<'a> {
+    TabGroup {
+        label: String,
+        inner: Vec<DspUiWidget<'a>>,
+        selected: usize,
+    },
     Box {
         layout: BoxLayout,
         label: String,
@@ -108,6 +111,26 @@ pub enum DspUiWidget<'a> {
     // },
 }
 
+impl<'a> DspUiWidget<'a> {
+    fn inner_mut(&mut self) -> Option<&mut Vec<DspUiWidget<'a>>> {
+        match self {
+            DspUiWidget::TabGroup { inner, .. } => Some(inner),
+            DspUiWidget::Box { inner, .. } => Some(inner),
+            _ => None,
+        }
+    }
+
+    pub fn label(&self) -> &str {
+        match self {
+            DspUiWidget::TabGroup { label, .. } => label,
+            DspUiWidget::Box { label, .. } => label,
+            DspUiWidget::Button { label, .. } => label,
+            DspUiWidget::Numeric { label, .. } => label,
+            DspUiWidget::Bargraph { label, .. } => label,
+        }
+    }
+}
+
 pub struct DspUiBuilder {
     widget_decls: VecDeque<WWidgetDecl>,
 }
@@ -129,7 +152,12 @@ impl DspUiBuilder {
                 .unwrap()
                 .to_string();
             let mb_widget = match decl.typ {
-                W::TAB_BOX | W::HORIZONTAL_BOX | W::VERTICAL_BOX => Some(DspUiWidget::Box {
+                W::TAB_BOX => Some(DspUiWidget::TabGroup {
+                    label,
+                    inner: vec![],
+                    selected: 0,
+                }),
+                W::HORIZONTAL_BOX | W::VERTICAL_BOX => Some(DspUiWidget::Box {
                     layout: BoxLayout::from_decl_type(decl.typ),
                     label,
                     inner: vec![],
@@ -161,8 +189,8 @@ impl DspUiBuilder {
             };
             if let Some(widget) = mb_widget {
                 cur_level.push(widget);
-                match cur_level.last_mut().unwrap() {
-                    DspUiWidget::Box { inner, .. } => self.build_widgets(inner),
+                match cur_level.last_mut().unwrap().inner_mut() {
+                    Some(inner) => self.build_widgets(inner),
                     _ => self.build_widgets(cur_level),
                 }
             } // If we don't have a widget, it means we had a CLOSE_BOX declaration, so we just go up

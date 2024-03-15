@@ -1,4 +1,7 @@
-use std::sync::{atomic::Ordering, Arc, Mutex, RwLock};
+use std::{
+    ops::RangeInclusive,
+    sync::{atomic::Ordering, Arc, RwLock},
+};
 
 use nih_plug::{
     log::{log, Level},
@@ -12,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
-use faust::SingletonDsp;
+use faust::{dsp_ui::*, SingletonDsp};
 
 pub mod faust;
 
@@ -32,7 +35,7 @@ struct SelectedPaths {
 pub struct NihFaustJit {
     sample_rate: Arc<AtomicF32>,
     params: Arc<NihFaustJitParams>,
-    dsp_state: Arc<Mutex<DspState>>,
+    dsp_state: Arc<RwLock<DspState>>,
 }
 
 #[derive(Params)]
@@ -55,7 +58,7 @@ impl Default for NihFaustJit {
         Self {
             sample_rate: Arc::new(AtomicF32::new(0.0)),
             params: Arc::new(NihFaustJitParams::default()),
-            dsp_state: Arc::new(Mutex::new(DspState::NoDspScript)),
+            dsp_state: Arc::new(RwLock::new(DspState::NoDspScript)),
         }
     }
 }
@@ -103,9 +106,9 @@ impl DspType {
 }
 
 fn enum_combobox<T: IntoEnumIterator + PartialEq + std::fmt::Debug>(
+    ui: &mut egui::Ui,
     id: impl std::hash::Hash,
     selected: &mut T,
-    ui: &mut egui::Ui,
 ) {
     egui::ComboBox::from_id_source(id)
         .selected_text(format!("{:?}", selected))
@@ -115,6 +118,136 @@ fn enum_combobox<T: IntoEnumIterator + PartialEq + std::fmt::Debug>(
                 ui.selectable_value(selected, variant, s);
             }
         });
+}
+
+fn draw_dsp_widgets(ui: &mut egui::Ui, widgets: &mut [DspUiWidget<'_>]) {
+    for w in widgets {
+        match w {
+            DspUiWidget::TabGroup {
+                label,
+                inner,
+                selected,
+            } => {
+                egui::CollapsingHeader::new(&*label)
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        ui.vertical(|ui| {
+                            ui.horizontal(|ui| {
+                                ui.label("<<");
+                                for (idx, w) in inner.iter().enumerate() {
+                                    let mut btn = egui::Button::new(w.label());
+                                    if *selected == idx {
+                                        btn = btn.fill(egui::Color32::DARK_BLUE);
+                                    }
+                                    if ui.add(btn).clicked() {
+                                        *selected = idx;
+                                    }
+                                }
+                                ui.label(">>");
+                            });
+                            ui.separator();
+                            draw_dsp_widgets(ui, &mut inner[*selected..=*selected]);
+                        });
+                    });
+            }
+            DspUiWidget::Box {
+                layout,
+                label,
+                inner,
+            } => {
+                let egui_layout = match layout {
+                    BoxLayout::Horizontal => egui::Layout::left_to_right(egui::Align::Min),
+                    BoxLayout::Vertical => egui::Layout::top_down(egui::Align::Min),
+                };
+                egui::CollapsingHeader::new(&*label)
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        ui.with_layout(egui_layout, |ui| draw_dsp_widgets(ui, inner))
+                    });
+            }
+            DspUiWidget::Button {
+                layout,
+                label,
+                zone,
+            } => match layout {
+                ButtonLayout::Trigger => {
+                    // Not sure this is OK. The zone will be toggled off
+                    // immediately the next time the GUI is drawn, so if the
+                    // audio thread does not run in between it will miss the
+                    // click
+                    **zone = 0.0;
+                    if ui.button(&*label).clicked() {
+                        **zone = 1.0;
+                    }
+                }
+                ButtonLayout::Checkbox => {
+                    let mut selected = **zone != 0.0;
+                    ui.checkbox(&mut selected, &*label);
+                    **zone = selected as i32 as f32;
+                }
+            },
+            DspUiWidget::Numeric {
+                layout,
+                label,
+                zone,
+                min,
+                max,
+                step,
+                ..
+            } => {
+                let rng = RangeInclusive::new(*min, *max);
+                match layout {
+                    NumericLayout::NumEntry => {
+                        ui.horizontal(|ui| {
+                            ui.label(&*label);
+                            ui.add(egui::DragValue::new(*zone).clamp_range(rng));
+                        });
+                    }
+                    NumericLayout::HorizontalSlider => {
+                        ui.vertical(|ui| {
+                            ui.label(&*label);
+                            ui.add(egui::Slider::new(*zone, rng).step_by(*step as f64));
+                        });
+                    }
+                    NumericLayout::VerticalSlider => {
+                        ui.vertical(|ui| {
+                            ui.label(&*label);
+                            ui.add(
+                                egui::Slider::new(*zone, rng)
+                                    .step_by(*step as f64)
+                                    .vertical(),
+                            );
+                        });
+                    }
+                };
+            }
+            DspUiWidget::Bargraph {
+                layout,
+                label,
+                zone,
+                min,
+                max,
+            } => {
+                // PLACEHOLDER:
+                match layout {
+                    BargraphLayout::Horizontal => ui.vertical(|ui| {
+                        ui.label(format!("{}:", label));
+                        ui.horizontal(|ui| {
+                            ui.label(format!("{:.2}[", min));
+                            ui.colored_label(egui::Color32::YELLOW, format!("{:.2}", **zone));
+                            ui.label(format!("]{:.2}", max));
+                        });
+                    }),
+                    BargraphLayout::Vertical => ui.vertical(|ui| {
+                        ui.label(format!("{}:", label));
+                        ui.label(format!("_{:.2}_", max));
+                        ui.colored_label(egui::Color32::YELLOW, format!(" {:.2}", **zone));
+                        ui.label(format!("¨{:.2}¨", min));
+                    }),
+                };
+            }
+        }
+    }
 }
 
 impl Plugin for NihFaustJit {
@@ -175,7 +308,7 @@ impl Plugin for NihFaustJit {
                         ) {
                             Err(msg) => DspState::Failed(msg),
                             Ok(dsp) => {
-                                log!(Level::Debug, "Widgets: {:?}", dsp.widgets());
+                                log!(Level::Debug, "Widgets: {:?}", dsp.widgets().lock().unwrap());
                                 DspState::Loaded(dsp)
                             }
                         }
@@ -190,7 +323,10 @@ impl Plugin for NihFaustJit {
                     dsp_nvoices,
                     new_dsp_state
                 );
-                *dsp_state_arc.lock().unwrap() = new_dsp_state;
+                // This is the only place where the whole DSP state is locked in
+                // write mode, and only so we can swap it with the newly loaded
+                // one:
+                *dsp_state_arc.write().unwrap() = new_dsp_state;
             }
         })
     }
@@ -216,25 +352,21 @@ impl Plugin for NihFaustJit {
     }
 
     fn editor(&mut self, async_executor: AsyncExecutor<Self>) -> Option<Box<dyn Editor>> {
-        #[cfg(debug_assertions)]
-        let sample_rate_arc = Arc::clone(&self.sample_rate);
-
         let selected_paths_arc = Arc::clone(&self.params.selected_paths);
         let dsp_nvoices_arc = Arc::clone(&self.params.dsp_nvoices);
         let dsp_state_arc = Arc::clone(&self.dsp_state);
+        let editor_state_arc = Arc::clone(&self.params.editor_state);
 
         create_egui_editor(
             Arc::clone(&self.params.editor_state),
             (None, None),
             |_, _| {},
             move |egui_ctx, _param_setter, (dsp_script_dialog, dsp_lib_path_dialog)| {
-                egui::CentralPanel::default().show(egui_ctx, |ui| {
-                    #[cfg(debug_assertions)]
-                    ui.colored_label(
-                        egui::Color32::LIGHT_BLUE,
-                        format!("Sample rate: {}", sample_rate_arc.load(Ordering::Relaxed)),
-                    );
-
+                if editor_state_arc.is_open() {
+                    let top_panel = egui::TopBottomPanel::top("DSP loading")
+                        //.resizable(true)
+                        .frame(egui::Frame::default().inner_margin(8.0));
+                    top_panel.show(egui_ctx, |ui| {
                     // Setting the DSP type and number of voices (if applicable):
 
                     let mut nvoices = *dsp_nvoices_arc.read().unwrap();
@@ -242,7 +374,7 @@ impl Plugin for NihFaustJit {
                     let last_dsp_type = selected_dsp_type;
                     ui.horizontal(|ui| {
                         ui.label("DSP type:");
-                        enum_combobox("dsp-type-combobox", &mut selected_dsp_type, ui);
+                        enum_combobox(ui, "dsp-type-combobox", &mut selected_dsp_type);
                         match selected_dsp_type {
                             DspType::AutoDetect => {
                                 nvoices = -1;
@@ -311,13 +443,25 @@ impl Plugin for NihFaustJit {
                         }
                     }
 
-                    // Showing an error if the DSP script compilation reported
-                    // one:
-
-                    if let DspState::Failed(faust_err_msg) = &*dsp_state_arc.lock().unwrap() {
-                        ui.colored_label(egui::Color32::LIGHT_RED, faust_err_msg);
-                    }
+                    // Drawing the plugin's GUI:
+                    let plugin_gui_panel = egui::CentralPanel::default()
+                        .frame(egui::Frame::default().inner_margin(8.0));
+                    plugin_gui_panel.show_inside(ui, |ui| {
+                        let scr_area = egui::ScrollArea::both()
+                            .auto_shrink([false, false])
+                            .min_scrolled_height(500.0); // Hack. FIXIT
+                        scr_area.show(ui, |ui| {
+                            match &*dsp_state_arc.read().unwrap() {
+                                DspState::NoDspScript => { ui.label("-- No DSP --"); }
+                                DspState::Failed(faust_err_msg) => { ui.colored_label(egui::Color32::LIGHT_RED, faust_err_msg); }
+                                DspState::Loaded(dsp) => {
+                                    draw_dsp_widgets(ui, &mut *dsp.widgets().lock().unwrap());
+                                }
+                            }
+                        });
+                    });
                 });
+                }
             },
         )
     }
@@ -332,7 +476,7 @@ impl Plugin for NihFaustJit {
         _aux: &mut AuxiliaryBuffers,
         process_ctx: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
-        if let DspState::Loaded(dsp) = &mut *self.dsp_state.lock().unwrap() {
+        if let DspState::Loaded(dsp) = &*self.dsp_state.read().unwrap() {
             dsp.process_buffer(buffer, process_ctx);
         }
 

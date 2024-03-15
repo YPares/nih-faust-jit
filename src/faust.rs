@@ -4,7 +4,10 @@ use nih_plug::{
 use std::{
     ffi::{c_void, CStr, CString},
     ptr::null_mut,
-    sync::atomic::{AtomicPtr, Ordering},
+    sync::{
+        atomic::{AtomicPtr, Ordering},
+        Mutex,
+    },
 };
 
 use dsp_ui::*;
@@ -17,15 +20,19 @@ pub mod wrapper;
 /// RAII interface to faust DSP factories and instances
 pub struct SingletonDsp {
     factory: AtomicPtr<WFactory>,
-    instance: AtomicPtr<WDsp>,
+    /// The DSP instance is mutex-protected, as we don't want its compute
+    /// function being called by two threads at the same time
+    instance: Mutex<AtomicPtr<WDsp>>,
     uis: AtomicPtr<WUIs>,
-    widgets: Vec<DspUiWidget<'static>>,
+    widgets: Mutex<Vec<DspUiWidget<'static>>>,
 }
+// AtomicPtr is used above only to make the pointers (and thus the whole type)
+// Sync. The pointers themselves will never be mutated.
 
 impl Drop for SingletonDsp {
     fn drop(&mut self) {
         unsafe {
-            let instance = self.instance.get_mut();
+            let instance = self.instance.get_mut().unwrap().get_mut();
             if !instance.is_null() {
                 w_deleteDSPInstance(*instance);
             }
@@ -44,8 +51,8 @@ impl Drop for SingletonDsp {
 impl SingletonDsp {
     /// Load a faust .dsp file and initialize the DSP
     ///
-    /// nvoices controls the both the amount of voices and the type of DSP that
-    /// will be loaded. See w_createDSPInstance for more info.
+    /// nvoices controls both the amount of voices and the type of DSP that will
+    /// be loaded. See w_createDSPInstance for more info.
     pub fn from_file(
         script_path: &str,
         dsp_libs_path: &str,
@@ -54,9 +61,9 @@ impl SingletonDsp {
     ) -> Result<Self, String> {
         let mut this = Self {
             factory: AtomicPtr::new(null_mut()),
-            instance: AtomicPtr::new(null_mut()),
+            instance: Mutex::new(AtomicPtr::new(null_mut())),
             uis: AtomicPtr::new(null_mut()),
-            widgets: vec![],
+            widgets: Mutex::new(vec![]),
         };
         let [script_path_c, dsp_libs_path_c] = [script_path, dsp_libs_path]
             .map(|s| CString::new(s).expect(&format!("{} failed to convert to CString", s)));
@@ -78,7 +85,7 @@ impl SingletonDsp {
         } else {
             *this.factory.get_mut() = fac_ptr;
             let inst_ptr = unsafe { w_createDSPInstance(fac_ptr, sample_rate as i32, nvoices) };
-            *this.instance.get_mut() = inst_ptr;
+            *this.instance.get_mut().unwrap().get_mut() = inst_ptr;
             let info = unsafe { w_getDSPInfo(inst_ptr) };
             if info.num_inputs <= 2 && info.num_outputs <= 2 {
                 let mut gui_builder = DspUiBuilder::new();
@@ -89,7 +96,7 @@ impl SingletonDsp {
                         (&mut gui_builder) as *mut DspUiBuilder as *mut c_void,
                     )
                 };
-                gui_builder.build_widgets(&mut this.widgets);
+                gui_builder.build_widgets(this.widgets.get_mut().unwrap());
                 Ok(this)
             } else {
                 Err(format!(
@@ -100,14 +107,12 @@ impl SingletonDsp {
         }
     }
 
-    // The widgets' lifetime is that of the DSP, therefore we don't export the
-    // widgets with a 'static lifetime here
-    pub fn widgets(&self) -> &Vec<DspUiWidget<'_>> {
+    pub fn widgets(&self) -> &Mutex<Vec<DspUiWidget<'static>>> {
         &self.widgets
     }
 
     pub fn process_buffer<T: Plugin>(
-        &mut self,
+        &self,
         audio_buf: &mut Buffer,
         process_ctx: &mut impl ProcessContext<T>,
     ) {
@@ -133,9 +138,10 @@ impl SingletonDsp {
         let buf_slice = audio_buf.as_slice();
         let mut buf_ptrs = [buf_slice[0].as_mut_ptr(), buf_slice[1].as_mut_ptr()];
 
+        let dsp = self.instance.lock().unwrap();
         unsafe {
             w_computeBuffer(
-                self.instance.load(Ordering::Relaxed),
+                dsp.load(Ordering::Relaxed),
                 audio_buf.samples() as i32,
                 buf_ptrs.as_mut_ptr(),
             );
