@@ -174,7 +174,10 @@ impl Plugin for NihFaustJit {
                             dsp_nvoices,
                         ) {
                             Err(msg) => DspState::Failed(msg),
-                            Ok(dsp) => DspState::Loaded(dsp),
+                            Ok(dsp) => {
+                                log!(Level::Debug, "Widgets: {:?}", dsp.widgets());
+                                DspState::Loaded(dsp)
+                            }
                         }
                     }
                     None => DspState::NoDspScript,
@@ -314,51 +317,6 @@ impl Plugin for NihFaustJit {
                     if let DspState::Failed(faust_err_msg) = &*dsp_state_arc.lock().unwrap() {
                         ui.colored_label(egui::Color32::LIGHT_RED, faust_err_msg);
                     }
-
-                    let mut txt = String::new();
-                    egui::Window::new("Table")
-                        .resizable(true)
-                        .constrain(false)
-                        //.anchor(egui::Align2::CENTER_CENTER, (0.0, 0.0))
-                        .show(egui_ctx, |ui| {
-                            egui::TopBottomPanel::top("plop").show_inside(ui, |ui| {
-                                ui.collapsing("plop", |ui| {
-                                    ui.label("Body");
-                                });
-                            });
-
-                            egui::SidePanel::left("pouic").show_inside(ui, |ui| {
-                                ui.label("pouic");
-                                egui::TopBottomPanel::bottom("argh").show_inside(ui, |ui| {
-                                    ui.collapsing("argh", |ui| {
-                                        ui.label("Body");
-                                    });
-                                });
-                            });
-
-                            egui::Grid::new("some_unique_id")
-                                .striped(true)
-                                .show(ui, |ui| {
-                                    egui::Frame::none().fill(egui::Color32::RED).show(ui, |ui| {
-                                        ui.label("First row, first column");
-                                        ui.text_edit_singleline(&mut txt);
-                                        ui.label("plop");
-                                    });
-                                    ui.end_row();
-
-                                    ui.label("Second row, first column");
-                                    ui.label("Second row, second column");
-                                    ui.label("Second row, third column");
-                                    ui.end_row();
-
-                                    ui.vertical(|ui| {
-                                        ui.label("Same");
-                                        ui.label("cell");
-                                    });
-                                    ui.label("Third row, second column");
-                                    ui.end_row();
-                                })
-                        });
                 });
             },
         )

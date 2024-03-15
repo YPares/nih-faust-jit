@@ -29,6 +29,7 @@ fn main() {
         //.clang_arg(format!("-I{}", faust_headers_path))
         // Tell cargo to invalidate the built crate whenever any of the
         // included header files changed.
+        .rustified_enum("WWidgetDeclType")
         .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
         // Finish the builder and generate the bindings.
         .generate()

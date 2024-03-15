@@ -1,24 +1,25 @@
 use nih_plug::{
-    buffer::Buffer,
-    context::process::ProcessContext,
-    //log::{log, Level},
-    midi::MidiResult,
-    plugin::Plugin,
+    buffer::Buffer, context::process::ProcessContext, midi::MidiResult, plugin::Plugin,
 };
 use std::{
-    ffi::{CStr, CString},
+    ffi::{c_void, CStr, CString},
     ptr::null_mut,
     sync::atomic::{AtomicPtr, Ordering},
 };
 
-include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
+use dsp_ui::*;
+use wrapper::*;
+
+pub mod dsp_ui;
+pub mod wrapper;
 
 #[derive(Debug)]
 /// RAII interface to faust DSP factories and instances
 pub struct SingletonDsp {
     factory: AtomicPtr<WFactory>,
     instance: AtomicPtr<WDsp>,
-    midi_handler: AtomicPtr<WMidiHandler>,
+    uis: AtomicPtr<WUIs>,
+    widgets: Vec<DspUiWidget<'static>>,
 }
 
 impl Drop for SingletonDsp {
@@ -32,9 +33,9 @@ impl Drop for SingletonDsp {
             if !factory.is_null() {
                 w_deleteDSPFactory(*factory);
             }
-            let midi_handler = self.midi_handler.get_mut();
-            if !midi_handler.is_null() {
-                w_deleteMidiHandler(*midi_handler);
+            let uis = self.uis.get_mut();
+            if !uis.is_null() {
+                w_deleteUIs(*uis);
             }
         }
     }
@@ -54,7 +55,8 @@ impl SingletonDsp {
         let mut this = Self {
             factory: AtomicPtr::new(null_mut()),
             instance: AtomicPtr::new(null_mut()),
-            midi_handler: AtomicPtr::new(null_mut()),
+            uis: AtomicPtr::new(null_mut()),
+            widgets: vec![],
         };
         let [script_path_c, dsp_libs_path_c] = [script_path, dsp_libs_path]
             .map(|s| CString::new(s).expect(&format!("{} failed to convert to CString", s)));
@@ -79,7 +81,15 @@ impl SingletonDsp {
             *this.instance.get_mut() = inst_ptr;
             let info = unsafe { w_getDSPInfo(inst_ptr) };
             if info.num_inputs <= 2 && info.num_outputs <= 2 {
-                *this.midi_handler.get_mut() = unsafe { w_buildMidiHandler(inst_ptr) };
+                let mut gui_builder = DspUiBuilder::new();
+                *this.uis.get_mut() = unsafe {
+                    w_createUIs(
+                        inst_ptr,
+                        Some(widget_decl_callback),
+                        (&mut gui_builder) as *mut DspUiBuilder as *mut c_void,
+                    )
+                };
+                gui_builder.build_widgets(&mut this.widgets);
                 Ok(this)
             } else {
                 Err(format!(
@@ -88,6 +98,12 @@ impl SingletonDsp {
                 ))
             }
         }
+    }
+
+    // The widgets' lifetime is that of the DSP, therefore we don't export the
+    // widgets with a 'static lifetime here
+    pub fn widgets(&self) -> &Vec<DspUiWidget<'_>> {
+        &self.widgets
     }
 
     pub fn process_buffer<T: Plugin>(
@@ -106,9 +122,9 @@ impl SingletonDsp {
                     //log!(Level::Debug, "Ignored midi_event");
                 }
                 Some(MidiResult::Basic(bytes)) => {
-                    let handler = self.midi_handler.load(Ordering::Relaxed);
+                    let uis = self.uis.load(Ordering::Relaxed);
                     unsafe {
-                        w_handleMidiEvent(handler, time, bytes.as_ptr());
+                        w_handleMidiEvent(uis, time, bytes.as_ptr());
                     }
                 }
             }
