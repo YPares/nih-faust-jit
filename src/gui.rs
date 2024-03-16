@@ -107,7 +107,11 @@ pub fn top_panel_contents(
     }
 }
 
-pub fn central_panel_contents(ui: &mut egui::Ui, widgets: &mut [DspWidget<'_>]) {
+pub fn central_panel_contents(
+    ui: &mut egui::Ui,
+    widgets: &mut [DspWidget<'_>],
+    in_a_tab: bool,
+) {
     for w in widgets {
         match w {
             DspWidget::TabGroup {
@@ -133,7 +137,7 @@ pub fn central_panel_contents(ui: &mut egui::Ui, widgets: &mut [DspWidget<'_>]) 
                                 ui.label(">>");
                             });
                             ui.separator();
-                            central_panel_contents(ui, &mut inner[*selected..=*selected]);
+                            central_panel_contents(ui, &mut inner[*selected..=*selected], true);
                         });
                     });
             }
@@ -146,11 +150,16 @@ pub fn central_panel_contents(ui: &mut egui::Ui, widgets: &mut [DspWidget<'_>]) 
                     BoxLayout::Horizontal => egui::Layout::left_to_right(egui::Align::Min),
                     BoxLayout::Vertical => egui::Layout::top_down(egui::Align::Min),
                 };
-                egui::CollapsingHeader::new(&*label)
-                    .default_open(true)
-                    .show(ui, |ui| {
-                        ui.with_layout(egui_layout, |ui| central_panel_contents(ui, inner))
-                    });
+                let mut draw_inner = |ui: &mut egui::Ui| {
+                    ui.with_layout(egui_layout, |ui| central_panel_contents(ui, inner, false))
+                };
+                if in_a_tab {
+                    draw_inner(ui);
+                } else {
+                    egui::CollapsingHeader::new(&*label)
+                        .default_open(true)
+                        .show(ui, draw_inner);
+                }
             }
             DspWidget::Button {
                 layout,

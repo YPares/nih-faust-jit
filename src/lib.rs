@@ -244,6 +244,7 @@ impl Plugin for NihFaustJit {
                                         central_panel_contents(
                                             ui,
                                             &mut *dsp.widgets().lock().unwrap(),
+                                            false
                                         );
                                     }
                                 });
