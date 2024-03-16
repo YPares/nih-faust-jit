@@ -72,16 +72,16 @@ impl BargraphLayout {
 
 /// Lifetime 'a corresponds to that of the dsp object
 #[derive(Debug)]
-pub enum DspUiWidget<'a> {
+pub enum DspWidget<'a> {
     TabGroup {
         label: String,
-        inner: Vec<DspUiWidget<'a>>,
+        inner: Vec<DspWidget<'a>>,
         selected: usize,
     },
     Box {
         layout: BoxLayout,
         label: String,
-        inner: Vec<DspUiWidget<'a>>,
+        inner: Vec<DspWidget<'a>>,
     },
     Button {
         layout: ButtonLayout,
@@ -111,31 +111,31 @@ pub enum DspUiWidget<'a> {
     // },
 }
 
-impl<'a> DspUiWidget<'a> {
-    fn inner_mut(&mut self) -> Option<&mut Vec<DspUiWidget<'a>>> {
+impl<'a> DspWidget<'a> {
+    fn inner_mut(&mut self) -> Option<&mut Vec<DspWidget<'a>>> {
         match self {
-            DspUiWidget::TabGroup { inner, .. } => Some(inner),
-            DspUiWidget::Box { inner, .. } => Some(inner),
+            DspWidget::TabGroup { inner, .. } => Some(inner),
+            DspWidget::Box { inner, .. } => Some(inner),
             _ => None,
         }
     }
 
     pub fn label(&self) -> &str {
         match self {
-            DspUiWidget::TabGroup { label, .. } => label,
-            DspUiWidget::Box { label, .. } => label,
-            DspUiWidget::Button { label, .. } => label,
-            DspUiWidget::Numeric { label, .. } => label,
-            DspUiWidget::Bargraph { label, .. } => label,
+            DspWidget::TabGroup { label, .. } => label,
+            DspWidget::Box { label, .. } => label,
+            DspWidget::Button { label, .. } => label,
+            DspWidget::Numeric { label, .. } => label,
+            DspWidget::Bargraph { label, .. } => label,
         }
     }
 }
 
-pub struct DspUiBuilder {
+pub struct DspWidgetsBuilder {
     widget_decls: VecDeque<WWidgetDecl>,
 }
 
-impl DspUiBuilder {
+impl DspWidgetsBuilder {
     pub fn new() -> Self {
         Self {
             widget_decls: VecDeque::new(),
@@ -144,7 +144,7 @@ impl DspUiBuilder {
 
     /// To be called _after_ faust's buildUserInterface has finished, ie. after
     /// w_createUIs has finished. 'a is the lifetime of the DSP itself
-    pub fn build_widgets<'a>(&mut self, cur_level: &mut Vec<DspUiWidget<'a>>) {
+    pub fn build_widgets<'a>(&mut self, cur_level: &mut Vec<DspWidget<'a>>) {
         use WWidgetDeclType as W;
         if let Some(decl) = self.widget_decls.pop_front() {
             let label = unsafe { CStr::from_ptr(decl.label) }
@@ -152,24 +152,24 @@ impl DspUiBuilder {
                 .unwrap()
                 .to_string();
             let mb_widget = match decl.typ {
-                W::TAB_BOX => Some(DspUiWidget::TabGroup {
+                W::TAB_BOX => Some(DspWidget::TabGroup {
                     label,
                     inner: vec![],
                     selected: 0,
                 }),
-                W::HORIZONTAL_BOX | W::VERTICAL_BOX => Some(DspUiWidget::Box {
+                W::HORIZONTAL_BOX | W::VERTICAL_BOX => Some(DspWidget::Box {
                     layout: BoxLayout::from_decl_type(decl.typ),
                     label,
                     inner: vec![],
                 }),
                 W::CLOSE_BOX => None,
-                W::BUTTON | W::CHECK_BUTTON => Some(DspUiWidget::Button {
+                W::BUTTON | W::CHECK_BUTTON => Some(DspWidget::Button {
                     layout: ButtonLayout::from_decl_type(decl.typ),
                     label,
                     zone: unsafe { decl.zone.as_mut() }.unwrap(),
                 }),
                 W::HORIZONTAL_SLIDER | W::VERTICAL_SLIDER | W::NUM_ENTRY => {
-                    Some(DspUiWidget::Numeric {
+                    Some(DspWidget::Numeric {
                         layout: NumericLayout::from_decl_type(decl.typ),
                         label,
                         zone: unsafe { decl.zone.as_mut() }.unwrap(),
@@ -179,7 +179,7 @@ impl DspUiBuilder {
                         step: decl.step,
                     })
                 }
-                W::HORIZONTAL_BARGRAPH | W::VERTICAL_BARGRAPH => Some(DspUiWidget::Bargraph {
+                W::HORIZONTAL_BARGRAPH | W::VERTICAL_BARGRAPH => Some(DspWidget::Bargraph {
                     layout: BargraphLayout::from_decl_type(decl.typ),
                     label,
                     zone: unsafe { decl.zone.as_mut() }.unwrap(),
@@ -199,6 +199,6 @@ impl DspUiBuilder {
 }
 
 pub(crate) extern "C" fn widget_decl_callback(builder_ptr: *mut c_void, decl: WWidgetDecl) {
-    let builder = unsafe { (builder_ptr as *mut DspUiBuilder).as_mut() }.unwrap();
+    let builder = unsafe { (builder_ptr as *mut DspWidgetsBuilder).as_mut() }.unwrap();
     builder.widget_decls.push_back(decl);
 }

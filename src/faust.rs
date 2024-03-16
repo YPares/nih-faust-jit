@@ -10,10 +10,10 @@ use std::{
     },
 };
 
-use dsp_ui::*;
+use widgets::*;
 use wrapper::*;
 
-pub mod dsp_ui;
+pub mod widgets;
 pub mod wrapper;
 
 #[derive(Debug)]
@@ -24,7 +24,7 @@ pub struct SingletonDsp {
     /// function being called by two threads at the same time
     instance: Mutex<AtomicPtr<WDsp>>,
     uis: AtomicPtr<WUIs>,
-    widgets: Mutex<Vec<DspUiWidget<'static>>>,
+    widgets: Mutex<Vec<DspWidget<'static>>>,
 }
 // AtomicPtr is used above only to make the pointers (and thus the whole type)
 // Sync. The pointers themselves will never be mutated.
@@ -88,12 +88,12 @@ impl SingletonDsp {
             *this.instance.get_mut().unwrap().get_mut() = inst_ptr;
             let info = unsafe { w_getDSPInfo(inst_ptr) };
             if info.num_inputs <= 2 && info.num_outputs <= 2 {
-                let mut gui_builder = DspUiBuilder::new();
+                let mut gui_builder = DspWidgetsBuilder::new();
                 *this.uis.get_mut() = unsafe {
                     w_createUIs(
                         inst_ptr,
                         Some(widget_decl_callback),
-                        (&mut gui_builder) as *mut DspUiBuilder as *mut c_void,
+                        (&mut gui_builder) as *mut DspWidgetsBuilder as *mut c_void,
                     )
                 };
                 gui_builder.build_widgets(this.widgets.get_mut().unwrap());
@@ -107,7 +107,7 @@ impl SingletonDsp {
         }
     }
 
-    pub fn widgets(&self) -> &Mutex<Vec<DspUiWidget<'static>>> {
+    pub fn widgets(&self) -> &Mutex<Vec<DspWidget<'static>>> {
         &self.widgets
     }
 
