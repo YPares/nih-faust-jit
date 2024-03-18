@@ -1,9 +1,12 @@
 # nih-faust-jit
 
-A plugin to load Faust dsp files and JIT-compile them with LLVM. A simple GUI is
-provided to select which script to load and where to look for the Faust
-libraries that this script may import. The selected DSP script is saved as part
-of the plugin state and therefore is saved with your DAW project.
+A plugin to load Faust dsp files and JIT-compile them with LLVM. The selected
+DSP script is saved as part of the plugin state and therefore is saved with your
+DAW project. A two-part GUI is provided:
+
+- Select which script to load and where to look for the Faust libraries that
+this script may import
+- Tweak the parameters described in the script (shown as various `egui` widgets)
 
 Both effect and instrument DSPs are supported, with MIDI notes and CCs in both
 cases. The DSP script type is normally detected from its metadata. E.g. if the
@@ -66,3 +69,7 @@ cargo run --release
 - When using polyphonic instruments, voice stealings will result in small
   audible clicks in the sound. To be investigated, but for now set your voice
   number high enough.
+- Bargraph widgets are just very raw text for now.
+- Parameters changed via the GUI widgets are not saved in the plugin's state.
+  They will return to the default value they have in the script when the
+  plugin is reloaded.
