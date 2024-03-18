@@ -97,6 +97,10 @@ impl SingletonDsp {
                     )
                 };
                 gui_builder.build_widgets(this.widgets.get_mut().unwrap());
+                assert!(
+                    gui_builder.has_no_remaining_decls(),
+                    "Some widget declarations haven't been consumed"
+                );
                 Ok(this)
             } else {
                 Err(format!(

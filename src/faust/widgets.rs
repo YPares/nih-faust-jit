@@ -142,58 +142,58 @@ impl DspWidgetsBuilder {
         }
     }
 
+    pub fn has_no_remaining_decls(&self) -> bool {
+        self.widget_decls.is_empty()
+    }
+
     /// To be called _after_ faust's buildUserInterface has finished, ie. after
     /// w_createUIs has finished. 'a is the lifetime of the DSP itself
     pub fn build_widgets<'a>(&mut self, cur_level: &mut Vec<DspWidget<'a>>) {
         use WWidgetDeclType as W;
-        if let Some(decl) = self.widget_decls.pop_front() {
+        while let Some(decl) = self.widget_decls.pop_front() {
             let label = unsafe { CStr::from_ptr(decl.label) }
                 .to_str()
                 .unwrap()
                 .to_string();
-            let mb_widget = match decl.typ {
-                W::TAB_BOX => Some(DspWidget::TabGroup {
+            let mut widget = match decl.typ {
+                W::CLOSE_BOX => return,
+                W::TAB_BOX => DspWidget::TabGroup {
                     label,
                     inner: vec![],
                     selected: 0,
-                }),
-                W::HORIZONTAL_BOX | W::VERTICAL_BOX => Some(DspWidget::Box {
+                },
+                W::HORIZONTAL_BOX | W::VERTICAL_BOX => DspWidget::Box {
                     layout: BoxLayout::from_decl_type(decl.typ),
                     label,
                     inner: vec![],
-                }),
-                W::CLOSE_BOX => None,
-                W::BUTTON | W::CHECK_BUTTON => Some(DspWidget::Button {
+                },
+                W::BUTTON | W::CHECK_BUTTON => DspWidget::Button {
                     layout: ButtonLayout::from_decl_type(decl.typ),
                     label,
                     zone: unsafe { decl.zone.as_mut() }.unwrap(),
-                }),
-                W::HORIZONTAL_SLIDER | W::VERTICAL_SLIDER | W::NUM_ENTRY => {
-                    Some(DspWidget::Numeric {
-                        layout: NumericLayout::from_decl_type(decl.typ),
-                        label,
-                        zone: unsafe { decl.zone.as_mut() }.unwrap(),
-                        init: decl.init,
-                        min: decl.min,
-                        max: decl.max,
-                        step: decl.step,
-                    })
-                }
-                W::HORIZONTAL_BARGRAPH | W::VERTICAL_BARGRAPH => Some(DspWidget::Bargraph {
+                },
+                W::HORIZONTAL_SLIDER | W::VERTICAL_SLIDER | W::NUM_ENTRY => DspWidget::Numeric {
+                    layout: NumericLayout::from_decl_type(decl.typ),
+                    label,
+                    zone: unsafe { decl.zone.as_mut() }.unwrap(),
+                    init: decl.init,
+                    min: decl.min,
+                    max: decl.max,
+                    step: decl.step,
+                },
+                W::HORIZONTAL_BARGRAPH | W::VERTICAL_BARGRAPH => DspWidget::Bargraph {
                     layout: BargraphLayout::from_decl_type(decl.typ),
                     label,
                     zone: unsafe { decl.zone.as_mut() }.unwrap(),
                     min: decl.min,
                     max: decl.max,
-                }),
+                },
             };
-            if let Some(widget) = mb_widget {
-                cur_level.push(widget);
-                match cur_level.last_mut().unwrap().inner_mut() {
-                    Some(inner) => self.build_widgets(inner),
-                    _ => self.build_widgets(cur_level),
-                }
-            } // If we don't have a widget, it means we had a CLOSE_BOX declaration, so we just go up
+            if let Some(inner) = widget.inner_mut() {
+                // We recurse, so as to add to the newly opened box:
+                self.build_widgets(inner);
+            }
+            cur_level.push(widget);
         }
     }
 }

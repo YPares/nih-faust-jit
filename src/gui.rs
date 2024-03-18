@@ -107,11 +107,7 @@ pub fn top_panel_contents(
     }
 }
 
-pub fn central_panel_contents(
-    ui: &mut egui::Ui,
-    widgets: &mut [DspWidget<'_>],
-    in_a_tab: bool,
-) {
+pub fn central_panel_contents(ui: &mut egui::Ui, widgets: &mut [DspWidget<'_>], in_a_tab: bool) {
     for w in widgets {
         match w {
             DspWidget::TabGroup {
@@ -195,19 +191,25 @@ pub fn central_panel_contents(
                 match layout {
                     NumericLayout::NumEntry => {
                         ui.horizontal(|ui| {
-                            ui.label(&*label);
+                            if !label.is_empty() {
+                                ui.label(&*label);
+                            }
                             ui.add(egui::DragValue::new(*zone).clamp_range(rng));
                         });
                     }
                     NumericLayout::HorizontalSlider => {
                         ui.vertical(|ui| {
-                            ui.label(&*label);
+                            if !label.is_empty() {
+                                ui.label(&*label);
+                            }
                             ui.add(egui::Slider::new(*zone, rng).step_by(*step as f64));
                         });
                     }
                     NumericLayout::VerticalSlider => {
                         ui.vertical(|ui| {
-                            ui.label(&*label);
+                            if !label.is_empty() {
+                                ui.label(&*label);
+                            }
                             ui.add(
                                 egui::Slider::new(*zone, rng)
                                     .step_by(*step as f64)
@@ -227,7 +229,9 @@ pub fn central_panel_contents(
                 // PLACEHOLDER:
                 match layout {
                     BargraphLayout::Horizontal => ui.vertical(|ui| {
-                        ui.label(format!("{}:", label));
+                        if !label.is_empty() {
+                            ui.label(format!("{}:", label));
+                        }
                         ui.horizontal(|ui| {
                             ui.label(format!("{:.2}[", min));
                             ui.colored_label(egui::Color32::YELLOW, format!("{:.2}", **zone));
@@ -235,7 +239,9 @@ pub fn central_panel_contents(
                         });
                     }),
                     BargraphLayout::Vertical => ui.vertical(|ui| {
-                        ui.label(format!("{}:", label));
+                        if !label.is_empty() {
+                            ui.label(format!("{}:", label));
+                        }
                         ui.label(format!("_{:.2}_", max));
                         ui.colored_label(egui::Color32::YELLOW, format!(" {:.2}", **zone));
                         ui.label(format!("¨{:.2}¨", min));

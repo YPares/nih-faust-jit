@@ -56,7 +56,7 @@ WDsp *w_createDSPInstance(WFactory *factory, int sample_rate, int nvoices)
         midiControlledVoices = false;
     }
 
-    WDsp *dsp = factory->createPolyDSPInstance(nvoices, midiControlledVoices, false);
+    WDsp *dsp = factory->createPolyDSPInstance(nvoices, midiControlledVoices, true);
     dsp->init(sample_rate);
     return dsp;
 }
@@ -75,6 +75,7 @@ void w_computeBuffer(WDsp *dsp, int count, float **buf)
 
 void w_deleteDSPInstance(WDsp *dsp)
 {
+    dsp->instanceClear();
     delete dsp;
 }
 

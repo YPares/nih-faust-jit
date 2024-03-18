@@ -156,10 +156,7 @@ impl Plugin for NihFaustJit {
                             dsp_nvoices,
                         ) {
                             Err(msg) => DspState::Failed(msg),
-                            Ok(dsp) => {
-                                log!(Level::Debug, "Widgets: {:?}", dsp.widgets().lock().unwrap());
-                                DspState::Loaded(dsp)
-                            }
+                            Ok(dsp) => DspState::Loaded(dsp),
                         }
                     }
                     None => DspState::NoDspScript,
@@ -244,7 +241,7 @@ impl Plugin for NihFaustJit {
                                         central_panel_contents(
                                             ui,
                                             &mut *dsp.widgets().lock().unwrap(),
-                                            false
+                                            false,
                                         );
                                     }
                                 });
