@@ -107,11 +107,15 @@ pub fn top_panel_contents(
     }
 }
 
-fn circle_icon(ui: &mut egui::Ui, openness: f32, response: &egui::Response) {
+fn hgroup_header_icon(ui: &mut egui::Ui, openness: f32, response: &egui::Response) {
     let stroke = ui.style().interact(&response).fg_stroke;
-    let radius = egui::lerp(2.0..=3.0, openness);
-    ui.painter()
-        .circle_filled(response.rect.center(), radius, stroke.color);
+    if openness == 0.0 {
+        ui.painter()
+            .rect_filled(response.rect, egui::Rounding::ZERO, stroke.color);
+    } else {
+        ui.painter()
+            .rect_stroke(response.rect, egui::Rounding::ZERO, stroke);
+    }
 }
 
 pub fn central_panel_contents(ui: &mut egui::Ui, widgets: &mut [DspWidget<'_>], in_a_tab: bool) {
@@ -161,7 +165,7 @@ pub fn central_panel_contents(ui: &mut egui::Ui, widgets: &mut [DspWidget<'_>], 
                 } else {
                     let mut header = egui::CollapsingHeader::new(&*label).default_open(true);
                     if *layout == BoxLayout::Horizontal {
-                        header = header.icon(circle_icon);
+                        header = header.icon(hgroup_header_icon);
                     }
                     header.show(ui, draw_inner);
                 }
