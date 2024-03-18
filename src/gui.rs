@@ -202,39 +202,33 @@ pub fn central_panel_contents(ui: &mut egui::Ui, widgets: &mut [DspWidget<'_>], 
                 min,
                 max,
                 step,
-                ..
+                init,
             } => {
                 let rng = std::ops::RangeInclusive::new(*min, *max);
-                match layout {
-                    NumericLayout::NumEntry => {
-                        ui.horizontal(|ui| {
-                            if !label.is_empty() {
-                                ui.label(&*label);
-                            }
-                            ui.add(egui::DragValue::new(*zone).clamp_range(rng));
-                        });
+                ui.vertical(|ui| {
+                    if !label.is_empty() {
+                        if ui
+                            .label(&*label)
+                            .interact(egui::Sense::click())
+                            .double_clicked()
+                        {
+                            **zone = *init;
+                        }
                     }
-                    NumericLayout::HorizontalSlider => {
-                        ui.vertical(|ui| {
-                            if !label.is_empty() {
-                                ui.label(&*label);
-                            }
-                            ui.add(egui::Slider::new(*zone, rng).step_by(*step as f64));
-                        });
-                    }
-                    NumericLayout::VerticalSlider => {
-                        ui.vertical(|ui| {
-                            if !label.is_empty() {
-                                ui.label(&*label);
-                            }
-                            ui.add(
-                                egui::Slider::new(*zone, rng)
-                                    .step_by(*step as f64)
-                                    .vertical(),
-                            );
-                        });
-                    }
-                };
+                    match layout {
+                        NumericLayout::NumEntry => {
+                            ui.add(egui::DragValue::new(*zone).clamp_range(rng))
+                        }
+                        NumericLayout::HorizontalSlider => {
+                            ui.add(egui::Slider::new(*zone, rng).step_by(*step as f64))
+                        }
+                        NumericLayout::VerticalSlider => ui.add(
+                            egui::Slider::new(*zone, rng)
+                                .step_by(*step as f64)
+                                .vertical(),
+                        ),
+                    };
+                });
             }
             DspWidget::Bargraph {
                 layout,
