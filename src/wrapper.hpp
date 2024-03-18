@@ -30,7 +30,7 @@ void w_deleteDSPFactory(WFactory *factory);
 //   sent. This is _not_ an intended feature of the plugin, just a consequence
 //   of how Faust handles polyphony.
 //
-WDsp *w_createDSPInstance(WFactory *factory, int sample_rate, int nvoices);
+WDsp *w_createDSPInstance(WFactory *factory, int sample_rate, int nvoices, bool group_voices);
 
 struct WDspInfo
 {
@@ -59,10 +59,11 @@ enum WWidgetDeclType
     VERTICAL_BARGRAPH,
 };
 
+// The label is not part of WWidgetDecl because it may not outlive a call to a
+// WWidgetDeclCallback
 struct WWidgetDecl
 {
     WWidgetDeclType typ;
-    const char *label;
     float *zone;
     float init;
     float min;
@@ -70,7 +71,7 @@ struct WWidgetDecl
     float step;
 };
 
-typedef void (*WWidgetDeclCallback)(void *context, WWidgetDecl decl);
+typedef void (*WWidgetDeclCallback)(void *context, const char *label, WWidgetDecl decl);
 
 struct WUIs;
 

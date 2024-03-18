@@ -1,7 +1,8 @@
 use super::wrapper::*;
 use std::{
     collections::VecDeque,
-    ffi::{c_void, CStr},
+    ffi::{c_char, c_void, CStr},
+    hash::{Hash, Hasher},
 };
 
 #[derive(Debug, PartialEq, Eq)]
@@ -132,7 +133,7 @@ impl<'a> DspWidget<'a> {
 }
 
 pub struct DspWidgetsBuilder {
-    widget_decls: VecDeque<WWidgetDecl>,
+    widget_decls: VecDeque<(String, WWidgetDecl)>,
 }
 
 impl DspWidgetsBuilder {
@@ -150,14 +151,7 @@ impl DspWidgetsBuilder {
     /// w_createUIs has finished. 'a is the lifetime of the DSP itself
     pub fn build_widgets<'a>(&mut self, cur_level: &mut Vec<DspWidget<'a>>) {
         use WWidgetDeclType as W;
-        while let Some(decl) = self.widget_decls.pop_front() {
-            let mut label = unsafe { CStr::from_ptr(decl.label) }
-                .to_str()
-                .unwrap()
-                .to_string();
-            if label == "0x00" {
-                label = "".to_string();
-            }
+        while let Some((label, decl)) = self.widget_decls.pop_front() {
             let mut widget = match decl.typ {
                 W::CLOSE_BOX => return,
                 W::TAB_BOX => DspWidget::TabGroup {
@@ -201,7 +195,22 @@ impl DspWidgetsBuilder {
     }
 }
 
-pub(crate) extern "C" fn widget_decl_callback(builder_ptr: *mut c_void, decl: WWidgetDecl) {
+pub(crate) extern "C" fn widget_decl_callback(
+    builder_ptr: *mut c_void,
+    label_ptr: *const c_char,
+    decl: WWidgetDecl,
+) {
     let builder = unsafe { (builder_ptr as *mut DspWidgetsBuilder).as_mut() }.unwrap();
-    builder.widget_decls.push_back(decl);
+    let c_label = unsafe { CStr::from_ptr(label_ptr) };
+    let label = match c_label.to_str() {
+        Ok(s) => s.to_string(),
+        _ => {
+            // Label couldn't parse to utf8. We just hash the raw CStr to get
+            // some label:
+            let mut state = std::hash::DefaultHasher::new();
+            c_label.hash(&mut state);
+            state.finish().to_string()
+        }
+    };
+    builder.widget_decls.push_back((label, decl));
 }

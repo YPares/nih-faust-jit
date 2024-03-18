@@ -31,7 +31,7 @@ void w_deleteDSPFactory(WFactory *factory)
     delete factory;
 }
 
-WDsp *w_createDSPInstance(WFactory *factory, int sample_rate, int nvoices)
+WDsp *w_createDSPInstance(WFactory *factory, int sample_rate, int nvoices, bool group_voices)
 {
     // Whether the DSP voices should be controlled by faust from incoming MIDI
     // notes. If not, they will be all alive (and computed) all the time:
@@ -56,7 +56,7 @@ WDsp *w_createDSPInstance(WFactory *factory, int sample_rate, int nvoices)
         midiControlledVoices = false;
     }
 
-    WDsp *dsp = factory->createPolyDSPInstance(nvoices, midiControlledVoices, true);
+    WDsp *dsp = factory->createPolyDSPInstance(nvoices, midiControlledVoices, group_voices);
     dsp->init(sample_rate);
     return dsp;
 }
@@ -96,56 +96,56 @@ public:
 
     void openTabBox(const char *label)
     {
-        fCallback(fBuilder, {TAB_BOX, label, nullptr, 0, 0, 0, 0});
+        fCallback(fBuilder, label, {TAB_BOX, nullptr, 0, 0, 0, 0});
     }
 
     void openHorizontalBox(const char *label)
     {
-        fCallback(fBuilder, {HORIZONTAL_BOX, label, nullptr, 0, 0, 0, 0});
+        fCallback(fBuilder, label, {HORIZONTAL_BOX, nullptr, 0, 0, 0, 0});
     }
 
     void openVerticalBox(const char *label)
     {
-        fCallback(fBuilder, {VERTICAL_BOX, label, nullptr, 0, 0, 0, 0});
+        fCallback(fBuilder, label, {VERTICAL_BOX, nullptr, 0, 0, 0, 0});
     }
 
     void closeBox()
     {
-        fCallback(fBuilder, {CLOSE_BOX, "", nullptr, 0, 0, 0, 0});
+        fCallback(fBuilder, "", {CLOSE_BOX, nullptr, 0, 0, 0, 0});
     }
 
     void addButton(const char *label, FAUSTFLOAT *zone)
     {
-        fCallback(fBuilder, {BUTTON, label, zone, 0, 0, 0, 0});
+        fCallback(fBuilder, label, {BUTTON, zone, 0, 0, 0, 0});
     }
 
     void addCheckButton(const char *label, FAUSTFLOAT *zone)
     {
-        fCallback(fBuilder, {CHECK_BUTTON, label, zone, 0, 0, 0, 0});
+        fCallback(fBuilder, label, {CHECK_BUTTON, zone, 0, 0, 0, 0});
     }
 
     void addVerticalSlider(const char *label, FAUSTFLOAT *zone, FAUSTFLOAT init, FAUSTFLOAT min, FAUSTFLOAT max, FAUSTFLOAT step)
     {
-        fCallback(fBuilder, {VERTICAL_SLIDER, label, zone, init, min, max, step});
+        fCallback(fBuilder, label, {VERTICAL_SLIDER, zone, init, min, max, step});
     }
 
     void addHorizontalSlider(const char *label, FAUSTFLOAT *zone, FAUSTFLOAT init, FAUSTFLOAT min, FAUSTFLOAT max, FAUSTFLOAT step)
     {
-        fCallback(fBuilder, {HORIZONTAL_SLIDER, label, zone, init, min, max, step});
+        fCallback(fBuilder, label, {HORIZONTAL_SLIDER, zone, init, min, max, step});
     }
     void addNumEntry(const char *label, FAUSTFLOAT *zone, FAUSTFLOAT init, FAUSTFLOAT min, FAUSTFLOAT max, FAUSTFLOAT step)
     {
-        fCallback(fBuilder, {NUM_ENTRY, label, zone, init, min, max, step});
+        fCallback(fBuilder, label, {NUM_ENTRY, zone, init, min, max, step});
     }
 
     void addHorizontalBargraph(const char *label, FAUSTFLOAT *zone, FAUSTFLOAT min, FAUSTFLOAT max)
     {
-        fCallback(fBuilder, {HORIZONTAL_BARGRAPH, label, zone, 0, min, max, 0});
+        fCallback(fBuilder, label, {HORIZONTAL_BARGRAPH, zone, 0, min, max, 0});
     }
 
     void addVerticalBargraph(const char *label, FAUSTFLOAT *zone, FAUSTFLOAT min, FAUSTFLOAT max)
     {
-        fCallback(fBuilder, {VERTICAL_BARGRAPH, label, zone, 0, min, max, 0});
+        fCallback(fBuilder, label, {VERTICAL_BARGRAPH, zone, 0, min, max, 0});
     }
 
     // -- soundfiles. TODO
