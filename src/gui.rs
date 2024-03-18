@@ -107,6 +107,13 @@ pub fn top_panel_contents(
     }
 }
 
+fn circle_icon(ui: &mut egui::Ui, openness: f32, response: &egui::Response) {
+    let stroke = ui.style().interact(&response).fg_stroke;
+    let radius = egui::lerp(2.0..=3.0, openness);
+    ui.painter()
+        .circle_filled(response.rect.center(), radius, stroke.color);
+}
+
 pub fn central_panel_contents(ui: &mut egui::Ui, widgets: &mut [DspWidget<'_>], in_a_tab: bool) {
     for w in widgets {
         match w {
@@ -149,12 +156,14 @@ pub fn central_panel_contents(ui: &mut egui::Ui, widgets: &mut [DspWidget<'_>], 
                 let mut draw_inner = |ui: &mut egui::Ui| {
                     ui.with_layout(egui_layout, |ui| central_panel_contents(ui, inner, false))
                 };
-                if in_a_tab {
+                if in_a_tab || label.is_empty() {
                     draw_inner(ui);
                 } else {
-                    egui::CollapsingHeader::new(&*label)
-                        .default_open(true)
-                        .show(ui, draw_inner);
+                    let mut header = egui::CollapsingHeader::new(&*label).default_open(true);
+                    if *layout == BoxLayout::Horizontal {
+                        header = header.icon(circle_icon);
+                    }
+                    header.show(ui, draw_inner);
                 }
             }
             DspWidget::Button {

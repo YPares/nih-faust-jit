@@ -151,10 +151,13 @@ impl DspWidgetsBuilder {
     pub fn build_widgets<'a>(&mut self, cur_level: &mut Vec<DspWidget<'a>>) {
         use WWidgetDeclType as W;
         while let Some(decl) = self.widget_decls.pop_front() {
-            let label = unsafe { CStr::from_ptr(decl.label) }
+            let mut label = unsafe { CStr::from_ptr(decl.label) }
                 .to_str()
                 .unwrap()
                 .to_string();
+            if label == "0x00" {
+                label = "".to_string();
+            }
             let mut widget = match decl.typ {
                 W::CLOSE_BOX => return,
                 W::TAB_BOX => DspWidget::TabGroup {
