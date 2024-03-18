@@ -11,7 +11,7 @@
 #include <faust/midi/midi.h>
 #include <faust/gui/MidiUI.h>
 
-// These global vars must be declared in the application code. See
+// These static vars must be declared in the application code. See
 // https://faustdoc.grame.fr/manual/architectures/#multi-controller-and-synchronization
 std::list<GUI *> GUI::fGuiList;
 ztimedmap GUI::gTimedZoneMap;
@@ -56,7 +56,7 @@ WDsp *w_createDSPInstance(WFactory *factory, int sample_rate, int nvoices)
         midiControlledVoices = false;
     }
 
-    WDsp *dsp = factory->createPolyDSPInstance(nvoices, midiControlledVoices, false);
+    WDsp *dsp = factory->createPolyDSPInstance(nvoices, midiControlledVoices, true);
     dsp->init(sample_rate);
     return dsp;
 }
@@ -75,34 +75,119 @@ void w_computeBuffer(WDsp *dsp, int count, float **buf)
 
 void w_deleteDSPInstance(WDsp *dsp)
 {
+    dsp->instanceClear();
     delete dsp;
 }
 
-struct WMidiHandler
+class WidgetDeclGUI : public GUI
 {
-    midi_handler *handler;
-    MidiUI *ui;
+private:
+    WWidgetDeclCallback fCallback;
+    void *fBuilder;
+
+public:
+    WidgetDeclGUI(WWidgetDeclCallback callback, void *builder) : GUI(), fCallback(callback), fBuilder(builder)
+    {
+    }
+
+    ~WidgetDeclGUI()
+    {
+    }
+
+    void openTabBox(const char *label)
+    {
+        fCallback(fBuilder, {TAB_BOX, label, nullptr, 0, 0, 0, 0});
+    }
+
+    void openHorizontalBox(const char *label)
+    {
+        fCallback(fBuilder, {HORIZONTAL_BOX, label, nullptr, 0, 0, 0, 0});
+    }
+
+    void openVerticalBox(const char *label)
+    {
+        fCallback(fBuilder, {VERTICAL_BOX, label, nullptr, 0, 0, 0, 0});
+    }
+
+    void closeBox()
+    {
+        fCallback(fBuilder, {CLOSE_BOX, "", nullptr, 0, 0, 0, 0});
+    }
+
+    void addButton(const char *label, FAUSTFLOAT *zone)
+    {
+        fCallback(fBuilder, {BUTTON, label, zone, 0, 0, 0, 0});
+    }
+
+    void addCheckButton(const char *label, FAUSTFLOAT *zone)
+    {
+        fCallback(fBuilder, {CHECK_BUTTON, label, zone, 0, 0, 0, 0});
+    }
+
+    void addVerticalSlider(const char *label, FAUSTFLOAT *zone, FAUSTFLOAT init, FAUSTFLOAT min, FAUSTFLOAT max, FAUSTFLOAT step)
+    {
+        fCallback(fBuilder, {VERTICAL_SLIDER, label, zone, init, min, max, step});
+    }
+
+    void addHorizontalSlider(const char *label, FAUSTFLOAT *zone, FAUSTFLOAT init, FAUSTFLOAT min, FAUSTFLOAT max, FAUSTFLOAT step)
+    {
+        fCallback(fBuilder, {HORIZONTAL_SLIDER, label, zone, init, min, max, step});
+    }
+    void addNumEntry(const char *label, FAUSTFLOAT *zone, FAUSTFLOAT init, FAUSTFLOAT min, FAUSTFLOAT max, FAUSTFLOAT step)
+    {
+        fCallback(fBuilder, {NUM_ENTRY, label, zone, init, min, max, step});
+    }
+
+    void addHorizontalBargraph(const char *label, FAUSTFLOAT *zone, FAUSTFLOAT min, FAUSTFLOAT max)
+    {
+        fCallback(fBuilder, {HORIZONTAL_BARGRAPH, label, zone, 0, min, max, 0});
+    }
+
+    void addVerticalBargraph(const char *label, FAUSTFLOAT *zone, FAUSTFLOAT min, FAUSTFLOAT max)
+    {
+        fCallback(fBuilder, {VERTICAL_BARGRAPH, label, zone, 0, min, max, 0});
+    }
+
+    // -- soundfiles. TODO
+
+    void addSoundfile(const char *label, const char *filename, Soundfile **sf_zone) {}
+
+    // -- metadata declarations. Unused here
+
+    void declare(FAUSTFLOAT *, const char *, const char *) {}
 };
 
-WMidiHandler *w_buildMidiHandler(WDsp *dsp)
+struct WUIs
 {
-    WMidiHandler *h = new WMidiHandler();
-    h->handler = new midi_handler();
-    h->ui = new MidiUI(h->handler);
-    dsp->buildUserInterface(h->ui);
-    h->ui->run();
-    return h;
+    midi_handler *fMidiHandler;
+    MidiUI *fMidiUI;
+    WidgetDeclGUI *fWidgetDeclGUI;
+};
+
+WUIs *w_createUIs(WDsp *dsp, WWidgetDeclCallback callback, void *gui_builder)
+{
+    WUIs *uis = new WUIs();
+    uis->fMidiHandler = new midi_handler();
+    uis->fMidiUI = new MidiUI(uis->fMidiHandler);
+    uis->fWidgetDeclGUI = new WidgetDeclGUI(callback, gui_builder);
+    dsp->buildUserInterface(uis->fMidiUI);
+    dsp->buildUserInterface(uis->fWidgetDeclGUI);
+    uis->fMidiUI->run();
+    uis->fWidgetDeclGUI->run();
+    return uis;
 }
 
-void w_deleteMidiHandler(WMidiHandler *h)
+void w_deleteUIs(WUIs *uis)
 {
-    h->ui->stop();
-    delete h->ui;
-    delete h->handler;
-    delete h;
+    uis->fMidiUI->stop();
+    uis->fWidgetDeclGUI->stop();
+    delete uis->fMidiUI;
+    delete uis->fMidiHandler;
+    delete uis->fWidgetDeclGUI;
+    delete uis;
 }
 
-void w_handleMidiEvent(WMidiHandler *h, double time, const unsigned char bytes[3])
+void w_handleMidiEvent(WUIs *uis, double time, const unsigned char bytes[3])
 {
     // Faust expects status (type) bits _not_ to be shifted, so
     // we leave status bits in place and just set the other ones
@@ -111,9 +196,9 @@ void w_handleMidiEvent(WMidiHandler *h, double time, const unsigned char bytes[3
     uint8_t channel = bytes[0] & 0b00001111;
 
     if (type == midi::MIDI_PROGRAM_CHANGE || type == midi::MIDI_AFTERTOUCH)
-        h->handler->handleData1(time, type, channel, bytes[1]);
+        uis->fMidiHandler->handleData1(time, type, channel, bytes[1]);
     else
-        h->handler->handleData2(time, type, channel, bytes[1], bytes[2]);
+        uis->fMidiHandler->handleData2(time, type, channel, bytes[1], bytes[2]);
 
     GUI::updateAllGuis();
 }

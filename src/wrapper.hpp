@@ -44,10 +44,38 @@ void w_computeBuffer(WDsp *dsp, int count, float **buf);
 
 void w_deleteDSPInstance(WDsp *dsp);
 
-struct WMidiHandler;
+enum WWidgetDeclType
+{
+    TAB_BOX = 0,
+    HORIZONTAL_BOX,
+    VERTICAL_BOX,
+    CLOSE_BOX,
+    BUTTON,
+    CHECK_BUTTON,
+    HORIZONTAL_SLIDER,
+    VERTICAL_SLIDER,
+    NUM_ENTRY,
+    HORIZONTAL_BARGRAPH,
+    VERTICAL_BARGRAPH,
+};
 
-WMidiHandler *w_buildMidiHandler(WDsp *dsp);
+struct WWidgetDecl
+{
+    WWidgetDeclType typ;
+    const char *label;
+    float *zone;
+    float init;
+    float min;
+    float max;
+    float step;
+};
 
-void w_deleteMidiHandler(WMidiHandler *h);
+typedef void (*WWidgetDeclCallback)(void *context, WWidgetDecl decl);
 
-void w_handleMidiEvent(WMidiHandler *h, double time, const unsigned char bytes[3]);
+struct WUIs;
+
+WUIs *w_createUIs(WDsp *dsp, WWidgetDeclCallback callback, void *gui_builder);
+
+void w_deleteUIs(WUIs *h);
+
+void w_handleMidiEvent(WUIs *h, double time, const unsigned char bytes[3]);

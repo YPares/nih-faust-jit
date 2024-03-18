@@ -1,20 +1,17 @@
-use std::sync::{atomic::Ordering, Arc, Mutex, RwLock};
-
 use nih_plug::{
     log::{log, Level},
     prelude::*,
 };
 use nih_plug_egui::{create_egui_editor, egui, EguiState};
-
-use egui_file::FileDialog;
-
 use serde::{Deserialize, Serialize};
-use strum::IntoEnumIterator;
+use std::sync::{atomic::Ordering, Arc, RwLock};
 use strum_macros::EnumIter;
 
 use faust::SingletonDsp;
+use gui::*;
 
 pub mod faust;
+pub mod gui;
 
 #[derive(Debug)]
 enum DspState {
@@ -24,7 +21,7 @@ enum DspState {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct SelectedPaths {
+pub struct SelectedPaths {
     dsp_script: Option<std::path::PathBuf>,
     dsp_lib_path: std::path::PathBuf,
 }
@@ -32,7 +29,7 @@ struct SelectedPaths {
 pub struct NihFaustJit {
     sample_rate: Arc<AtomicF32>,
     params: Arc<NihFaustJitParams>,
-    dsp_state: Arc<Mutex<DspState>>,
+    dsp_state: Arc<RwLock<DspState>>,
 }
 
 #[derive(Params)]
@@ -55,7 +52,7 @@ impl Default for NihFaustJit {
         Self {
             sample_rate: Arc::new(AtomicF32::new(0.0)),
             params: Arc::new(NihFaustJitParams::default()),
-            dsp_state: Arc::new(Mutex::new(DspState::NoDspScript)),
+            dsp_state: Arc::new(RwLock::new(DspState::NoDspScript)),
         }
     }
 }
@@ -100,21 +97,6 @@ impl DspType {
             }
         }
     }
-}
-
-fn enum_combobox<T: IntoEnumIterator + PartialEq + std::fmt::Debug>(
-    id: impl std::hash::Hash,
-    selected: &mut T,
-    ui: &mut egui::Ui,
-) {
-    egui::ComboBox::from_id_source(id)
-        .selected_text(format!("{:?}", selected))
-        .show_ui(ui, |ui| {
-            for variant in T::iter() {
-                let s = format!("{:?}", variant);
-                ui.selectable_value(selected, variant, s);
-            }
-        });
 }
 
 impl Plugin for NihFaustJit {
@@ -187,7 +169,10 @@ impl Plugin for NihFaustJit {
                     dsp_nvoices,
                     new_dsp_state
                 );
-                *dsp_state_arc.lock().unwrap() = new_dsp_state;
+                // This is the only place where the whole DSP state is locked in
+                // write mode, and only so we can swap it with the newly loaded
+                // one:
+                *dsp_state_arc.write().unwrap() = new_dsp_state;
             }
         })
     }
@@ -213,108 +198,55 @@ impl Plugin for NihFaustJit {
     }
 
     fn editor(&mut self, async_executor: AsyncExecutor<Self>) -> Option<Box<dyn Editor>> {
-        #[cfg(debug_assertions)]
-        let sample_rate_arc = Arc::clone(&self.sample_rate);
-
         let selected_paths_arc = Arc::clone(&self.params.selected_paths);
         let dsp_nvoices_arc = Arc::clone(&self.params.dsp_nvoices);
         let dsp_state_arc = Arc::clone(&self.dsp_state);
+        let editor_state_arc = Arc::clone(&self.params.editor_state);
 
         create_egui_editor(
             Arc::clone(&self.params.editor_state),
             (None, None),
             |_, _| {},
             move |egui_ctx, _param_setter, (dsp_script_dialog, dsp_lib_path_dialog)| {
-                egui::CentralPanel::default().show(egui_ctx, |ui| {
-                    #[cfg(debug_assertions)]
-                    ui.colored_label(
-                        egui::Color32::LIGHT_BLUE,
-                        format!("Sample rate: {}", sample_rate_arc.load(Ordering::Relaxed)),
-                    );
+                if editor_state_arc.is_open() {
+                    // Top panel (DSP settings, loading):
+                    egui::TopBottomPanel::top("DSP loading")
+                        .frame(egui::Frame::default().inner_margin(8.0))
+                        .show(egui_ctx, |ui| {
+                            top_panel_contents(
+                                &async_executor,
+                                egui_ctx,
+                                ui,
+                                &dsp_nvoices_arc,
+                                &selected_paths_arc,
+                                dsp_lib_path_dialog,
+                                dsp_script_dialog,
+                            );
+                        });
 
-                    // Setting the DSP type and number of voices (if applicable):
-
-                    let mut nvoices = *dsp_nvoices_arc.read().unwrap();
-                    let mut selected_dsp_type = DspType::from_nvoices(nvoices);
-                    let last_dsp_type = selected_dsp_type;
-                    ui.horizontal(|ui| {
-                        ui.label("DSP type:");
-                        enum_combobox("dsp-type-combobox", &mut selected_dsp_type, ui);
-                        match selected_dsp_type {
-                            DspType::AutoDetect => {
-                                nvoices = -1;
-                                ui.label("DSP type and number of voices will be detected from script metadata");
-                            }
-                            DspType::Effect => {
-                                nvoices = 0;
-                                ui.label("DSP will be loaded as monophonic effect");
-                            },
-                            DspType::Instrument => {
-                                if selected_dsp_type != last_dsp_type {
-                                    // If we just changed dsp_type to
-                                    // Instrument, we need to set a default
-                                    // voice number:
-                                    nvoices = 1;
-                                }
-                                ui.add(egui::Slider::new(&mut nvoices, 1..=32).text("voices"));
-                            },
-                        }
-                    });
-                    *dsp_nvoices_arc.write().unwrap() = nvoices;
-
-                    let mut selected_paths = selected_paths_arc.write().unwrap();
-
-                    // Setting the Faust libraries path:
-
-                    ui.label(format!(
-                        "Faust DSP libraries path: {}",
-                        selected_paths.dsp_lib_path.display()
-                    ));
-                    if (ui.button("Set Faust libraries path")).clicked() {
-                        let mut dialog =
-                            FileDialog::select_folder(Some(selected_paths.dsp_lib_path.clone()));
-                        dialog.open();
-                        *dsp_lib_path_dialog = Some(dialog);
-                    }
-                    if let Some(dialog) = dsp_lib_path_dialog {
-                        if dialog.show(egui_ctx).selected() {
-                            if let Some(file) = dialog.path() {
-                                selected_paths.dsp_lib_path = file.to_path_buf();
-                            }
-                        }
-                    }
-
-                    // Setting the DSP script and triggering a reload:
-
-                    match &selected_paths.dsp_script {
-                        Some(path) => ui.label(format!("DSP script: {}", path.display())),
-                        None => ui.colored_label(egui::Color32::YELLOW, "No DSP script selected"),
-                    };
-                    if (ui.button("Set or reload DSP script")).clicked() {
-                        let presel = selected_paths
-                            .dsp_script
-                            .as_ref()
-                            .unwrap_or(&selected_paths.dsp_lib_path);
-                        let mut dialog = FileDialog::open_file(Some(presel.clone()));
-                        dialog.open();
-                        *dsp_script_dialog = Some(dialog);
-                    }
-                    if let Some(dialog) = dsp_script_dialog {
-                        if dialog.show(egui_ctx).selected() {
-                            if let Some(file) = dialog.path() {
-                                selected_paths.dsp_script = Some(file.to_path_buf());
-                                async_executor.execute_background(Tasks::ReloadDsp);
-                            }
-                        }
-                    }
-
-                    // Showing an error if the DSP script compilation reported
-                    // one:
-
-                    if let DspState::Failed(faust_err_msg) = &*dsp_state_arc.lock().unwrap() {
-                        ui.colored_label(egui::Color32::LIGHT_RED, faust_err_msg);
-                    }
-                });
+                    // Central panel (plugin's GUI):
+                    egui::CentralPanel::default()
+                        .frame(egui::Frame::default().inner_margin(8.0))
+                        .show(egui_ctx, |ui| {
+                            egui::ScrollArea::both()
+                                .auto_shrink([false, false])
+                                .show(ui, |ui| match &*dsp_state_arc.read().unwrap() {
+                                    DspState::NoDspScript => {
+                                        ui.label("-- No DSP --");
+                                    }
+                                    DspState::Failed(faust_err_msg) => {
+                                        ui.colored_label(egui::Color32::LIGHT_RED, faust_err_msg);
+                                    }
+                                    DspState::Loaded(dsp) => {
+                                        central_panel_contents(
+                                            ui,
+                                            &mut *dsp.widgets().lock().unwrap(),
+                                            false,
+                                        );
+                                    }
+                                });
+                        });
+                }
             },
         )
     }
@@ -329,7 +261,7 @@ impl Plugin for NihFaustJit {
         _aux: &mut AuxiliaryBuffers,
         process_ctx: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
-        if let DspState::Loaded(dsp) = &mut *self.dsp_state.lock().unwrap() {
+        if let DspState::Loaded(dsp) = &*self.dsp_state.read().unwrap() {
             dsp.process_buffer(buffer, process_ctx);
         }
 
