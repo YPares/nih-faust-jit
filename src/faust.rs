@@ -84,7 +84,7 @@ impl SingletonDsp {
                 .to_string())
         } else {
             *this.factory.get_mut() = fac_ptr;
-            let inst_ptr = unsafe { w_createDSPInstance(fac_ptr, sample_rate as i32, nvoices) };
+            let inst_ptr = unsafe { w_createDSPInstance(fac_ptr, sample_rate as i32, nvoices, false) };
             *this.instance.get_mut().unwrap().get_mut() = inst_ptr;
             let info = unsafe { w_getDSPInfo(inst_ptr) };
             if info.num_inputs <= 2 && info.num_outputs <= 2 {
