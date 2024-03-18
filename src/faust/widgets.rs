@@ -143,13 +143,17 @@ impl DspWidgetsBuilder {
         }
     }
 
-    pub fn has_no_remaining_decls(&self) -> bool {
-        self.widget_decls.is_empty()
+    pub fn build_widgets<'a>(mut self, widget_list: &mut Vec<DspWidget<'a>>) {
+        self.build_widgets_rec(widget_list);
+        assert!(
+            self.widget_decls.is_empty(),
+            "Some widget declarations haven't been consumed"
+        );
     }
 
     /// To be called _after_ faust's buildUserInterface has finished, ie. after
     /// w_createUIs has finished. 'a is the lifetime of the DSP itself
-    pub fn build_widgets<'a>(&mut self, cur_level: &mut Vec<DspWidget<'a>>) {
+    fn build_widgets_rec<'a>(&mut self, cur_level: &mut Vec<DspWidget<'a>>) {
         use WWidgetDeclType as W;
         while let Some((label, decl)) = self.widget_decls.pop_front() {
             let mut widget = match decl.typ {
@@ -188,7 +192,7 @@ impl DspWidgetsBuilder {
             };
             if let Some(inner) = widget.inner_mut() {
                 // We recurse, so as to add to the newly opened box:
-                self.build_widgets(inner);
+                self.build_widgets_rec(inner);
             }
             cur_level.push(widget);
         }
@@ -203,6 +207,7 @@ pub(crate) extern "C" fn widget_decl_callback(
     let builder = unsafe { (builder_ptr as *mut DspWidgetsBuilder).as_mut() }.unwrap();
     let c_label = unsafe { CStr::from_ptr(label_ptr) };
     let label = match c_label.to_str() {
+        Ok("0x00") => "".to_string(),
         Ok(s) => s.to_string(),
         _ => {
             // Label couldn't parse to utf8. We just hash the raw CStr to get

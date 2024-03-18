@@ -84,23 +84,20 @@ impl SingletonDsp {
                 .to_string())
         } else {
             *this.factory.get_mut() = fac_ptr;
-            let inst_ptr = unsafe { w_createDSPInstance(fac_ptr, sample_rate as i32, nvoices, false) };
+            let inst_ptr =
+                unsafe { w_createDSPInstance(fac_ptr, sample_rate as i32, nvoices, false) };
             *this.instance.get_mut().unwrap().get_mut() = inst_ptr;
             let info = unsafe { w_getDSPInfo(inst_ptr) };
             if info.num_inputs <= 2 && info.num_outputs <= 2 {
-                let mut gui_builder = DspWidgetsBuilder::new();
+                let mut widgets_builder = DspWidgetsBuilder::new();
                 *this.uis.get_mut() = unsafe {
                     w_createUIs(
                         inst_ptr,
                         Some(widget_decl_callback),
-                        (&mut gui_builder) as *mut DspWidgetsBuilder as *mut c_void,
+                        (&mut widgets_builder) as *mut DspWidgetsBuilder as *mut c_void,
                     )
                 };
-                gui_builder.build_widgets(this.widgets.get_mut().unwrap());
-                assert!(
-                    gui_builder.has_no_remaining_decls(),
-                    "Some widget declarations haven't been consumed"
-                );
+                widgets_builder.build_widgets(this.widgets.get_mut().unwrap());
                 Ok(this)
             } else {
                 Err(format!(

@@ -109,12 +109,13 @@ pub fn top_panel_contents(
 
 fn hgroup_header_icon(ui: &mut egui::Ui, openness: f32, response: &egui::Response) {
     let stroke = ui.style().interact(&response).fg_stroke;
+    let radius = 3.0;
     if openness == 0.0 {
         ui.painter()
-            .rect_filled(response.rect, egui::Rounding::ZERO, stroke.color);
+            .circle_filled(response.rect.center(), radius, stroke.color);
     } else {
         ui.painter()
-            .rect_stroke(response.rect, egui::Rounding::ZERO, stroke);
+            .circle_stroke(response.rect.center(), radius, stroke);
     }
 }
 
@@ -126,27 +127,27 @@ pub fn central_panel_contents(ui: &mut egui::Ui, widgets: &mut [DspWidget<'_>], 
                 inner,
                 selected,
             } => {
-                egui::CollapsingHeader::new(&*label)
-                    .default_open(true)
-                    .show(ui, |ui| {
-                        ui.vertical(|ui| {
-                            ui.horizontal(|ui| {
-                                ui.label("<<");
-                                for (idx, w) in inner.iter().enumerate() {
-                                    let mut btn = egui::Button::new(w.label());
-                                    if *selected == idx {
-                                        btn = btn.fill(egui::Color32::DARK_BLUE);
-                                    }
-                                    if ui.add(btn).clicked() {
-                                        *selected = idx;
-                                    }
-                                }
-                                ui.label(">>");
-                            });
-                            ui.separator();
-                            central_panel_contents(ui, &mut inner[*selected..=*selected], true);
-                        });
-                    });
+                let id = ui.make_persistent_id(&label);
+                egui::collapsing_header::CollapsingState::load_with_default_open(
+                    ui.ctx(),
+                    id,
+                    true,
+                )
+                .show_header(ui, |ui| {
+                    ui.label(&*label);
+                    for (idx, w) in inner.iter().enumerate() {
+                        let mut btn = egui::Button::new(w.label());
+                        if *selected == idx {
+                            btn = btn.fill(egui::Color32::DARK_BLUE);
+                        }
+                        if ui.add(btn).clicked() {
+                            *selected = idx;
+                        }
+                    }
+                })
+                .body(|ui| {
+                    central_panel_contents(ui, &mut inner[*selected..=*selected], true);
+                });
             }
             DspWidget::Box {
                 layout,
@@ -176,12 +177,8 @@ pub fn central_panel_contents(ui: &mut egui::Ui, widgets: &mut [DspWidget<'_>], 
                 zone,
             } => match layout {
                 ButtonLayout::Trigger => {
-                    // Not sure this is OK. The zone will be toggled off
-                    // immediately the next time the GUI is drawn, so if the
-                    // audio thread does not run in between it will miss the
-                    // click
                     **zone = 0.0;
-                    if ui.button(&*label).clicked() {
+                    if ui.button(&*label).dragged() {
                         **zone = 1.0;
                     }
                 }
