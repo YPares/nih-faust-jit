@@ -176,10 +176,17 @@ pub fn central_panel_contents(ui: &mut egui::Ui, widgets: &mut [DspWidget<'_>], 
                 label,
                 zone,
             } => match layout {
-                ButtonLayout::Trigger => {
-                    **zone = 0.0;
-                    if ui.button(&*label).dragged() {
+                ButtonLayout::GateButton => {
+                    let mut btn = egui::Button::new(&*label).sense(egui::Sense::drag());
+                    if **zone != 0.0 {
+                        // If was held last frame:
+                        btn = btn.fill(egui::Color32::YELLOW);
+                    }
+                    if ui.add(btn).dragged() {
+                        // If the button is currently held:
                         **zone = 1.0;
+                    } else {
+                        **zone = 0.0;
                     }
                 }
                 ButtonLayout::Checkbox => {
