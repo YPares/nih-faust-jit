@@ -237,28 +237,91 @@ pub fn central_panel_contents(ui: &mut egui::Ui, widgets: &mut [DspWidget<'_>], 
                 min,
                 max,
             } => {
-                // PLACEHOLDER:
-                match layout {
-                    BargraphLayout::Horizontal => ui.vertical(|ui| {
-                        if !label.is_empty() {
-                            ui.label(format!("{}:", label));
+                let cur_val = **zone;
+                let t = (cur_val - *min) / (*max - *min);
+
+                ui.vertical(|ui| {
+                    if !label.is_empty() {
+                        ui.label(format!("{}:", label));
+                    }
+                    match layout {
+                        BargraphLayout::Horizontal => {
+                            ui.horizontal(|ui| {
+                                ui.label(format!("{:.2}", min));
+                                draw_bargraph(ui, t, cur_val, layout);
+                                ui.label(format!("{:.2}", max));
+                            });
                         }
-                        ui.horizontal(|ui| {
-                            ui.label(format!("{:.2}[", min));
-                            ui.colored_label(egui::Color32::YELLOW, format!("{:.2}", **zone));
-                            ui.label(format!("]{:.2}", max));
-                        });
-                    }),
-                    BargraphLayout::Vertical => ui.vertical(|ui| {
-                        if !label.is_empty() {
-                            ui.label(format!("{}:", label));
+                        BargraphLayout::Vertical => {
+                            ui.label(format!("{:.2}", max));
+                            draw_bargraph(ui, t, cur_val, layout);
+                            ui.label(format!("{:.2}", min));
                         }
-                        ui.label(format!("_{:.2}_", max));
-                        ui.colored_label(egui::Color32::YELLOW, format!(" {:.2}", **zone));
-                        ui.label(format!("¨{:.2}¨", min));
-                    }),
-                };
+                    };
+                });
             }
         }
     }
+}
+
+fn draw_bargraph(ui: &mut egui::Ui, mut t: f32, cur_val: f32, layout: &BargraphLayout) {
+    let min_color = egui::Color32::DARK_GREEN;
+    let max_color = egui::Color32::YELLOW;
+
+    let cur_color = if t < 0.0 {
+        t = 0.0;
+        min_color
+    } else if t > 1.0 {
+        t = 1.0;
+        egui::Color32::RED
+    } else {
+        lerp_colors(min_color, max_color, t)
+    };
+
+    let max_size = match layout {
+        BargraphLayout::Horizontal => egui::vec2(80.0, 20.0),
+        BargraphLayout::Vertical => egui::vec2(20.0, 80.0),
+    };
+
+    let (rsp, painter) = ui.allocate_painter(max_size, egui::Sense::hover());
+
+    let (right_pos, top_pos) = match layout {
+        BargraphLayout::Horizontal => (
+            (1.0 - t) * rsp.rect.min.x + t * rsp.rect.max.x,
+            rsp.rect.min.y,
+        ),
+        BargraphLayout::Vertical => (
+            rsp.rect.max.x,
+            (1.0 - t) * rsp.rect.max.y + t * rsp.rect.min.y,
+        ),
+    };
+
+    let rounding = egui::Rounding::same(3.0);
+    painter.rect_filled(
+        egui::Rect::from_min_max(
+            egui::pos2(rsp.rect.min.x, top_pos),
+            egui::pos2(right_pos, rsp.rect.max.y),
+        ),
+        rounding,
+        cur_color,
+    );
+    painter.rect_stroke(
+        rsp.rect,
+        rounding,
+        egui::Stroke {
+            width: 2.0,
+            color: ui.style().interact(&rsp).fg_stroke.color,
+        },
+    );
+
+    rsp.on_hover_text(format!("{}", cur_val));
+}
+
+fn lerp_colors(min: egui::Color32, max: egui::Color32, t: f32) -> egui::Color32 {
+    let lerp_comps = |x, y| ((1.0 - t) * x as f32 + t * y as f32) as u8;
+    egui::Color32::from_rgb(
+        lerp_comps(min.r(), max.r()),
+        lerp_comps(min.g(), max.g()),
+        lerp_comps(min.b(), max.b()),
+    )
 }
