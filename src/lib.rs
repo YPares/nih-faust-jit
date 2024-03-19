@@ -162,7 +162,7 @@ impl Plugin for NihFaustJit {
                     None => DspState::NoDspScript,
                 };
                 log!(
-                    Level::Info,
+                    Level::Debug,
                     "Loaded {:?} with sample_rate={}, nvoices={} => {:?}",
                     selected_paths,
                     sample_rate,

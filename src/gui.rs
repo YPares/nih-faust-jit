@@ -243,9 +243,12 @@ pub fn central_panel_contents(ui: &mut egui::Ui, widgets: &mut [DspWidget<'_>], 
                 let t = (cur_val - *min) / (*max - *min);
 
                 ui.vertical(|ui| {
-                    if !label.is_empty() {
-                        ui.label(format!("{}:", label));
-                    }
+                    let label_width = if !label.is_empty() {
+                        let resp = ui.label(&*label);
+                        resp.rect.max.x - resp.rect.min.x
+                    } else {
+                        30.0
+                    };
                     match layout {
                         BargraphLayout::Horizontal => {
                             ui.horizontal(|ui| {
@@ -255,9 +258,15 @@ pub fn central_panel_contents(ui: &mut egui::Ui, widgets: &mut [DspWidget<'_>], 
                             });
                         }
                         BargraphLayout::Vertical => {
-                            ui.label(format!("{:.2}", max));
-                            draw_bargraph(ui, t, cur_val, layout);
-                            ui.label(format!("{:.2}", min));
+                            ui.allocate_ui_with_layout(
+                                egui::vec2(label_width, 100.0),
+                                egui::Layout::top_down(egui::Align::Center),
+                                |ui| {
+                                    ui.label(format!("{:.2}", max));
+                                    draw_bargraph(ui, t, cur_val, layout);
+                                    ui.label(format!("{:.2}", min));
+                                },
+                            );
                         }
                     };
                 });
