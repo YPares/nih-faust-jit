@@ -75,9 +75,6 @@ cargo run --release
   are just summed together. The plugin exposes a Gain parameter to the host.
   Don't forget to use it if your instrument script doesn't perform some volume
   reduction already.
-- When using polyphonic instruments, voice stealings will result in small
-  audible clicks in the sound. To be investigated, but for now set your voice
-  number high enough.
 - Parameters changed via the GUI widgets are not saved in the plugin's state.
   They will return to the default value they have in the script when the
   plugin is reloaded.
