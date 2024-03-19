@@ -19,6 +19,15 @@ polyphony. But you can override this via the GUI to force the DSP script type
 and number of voices: this is notably useful for scripts that describe
 instruments but do not contain a `[nvoices:xxx]` metadata.
 
+## UI
+
+![screenshot](./misc/screenshot.png)
+
+- DSP widgets are shown in a two-directional scrollable panel (you can also
+  left-click on empty space and drag to pan around)
+- `v`/`h`/`tgroup`s are implemented as foldable containers
+- double-click on any slider's label to reset it to its default value
+- hover a bargraph to see its current value
 
 ## Building
 
