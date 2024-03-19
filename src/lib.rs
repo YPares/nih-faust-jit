@@ -225,27 +225,34 @@ impl Plugin for NihFaustJit {
                         });
 
                     // Central panel (plugin's GUI):
-                    egui::CentralPanel::default()
-                        .frame(egui::Frame::default().inner_margin(8.0))
-                        .show(egui_ctx, |ui| {
-                            egui::ScrollArea::both()
-                                .auto_shrink([false, false])
-                                .show(ui, |ui| match &*dsp_state_arc.read().unwrap() {
-                                    DspState::NoDspScript => {
-                                        ui.label("-- No DSP --");
-                                    }
-                                    DspState::Failed(faust_err_msg) => {
-                                        ui.colored_label(egui::Color32::LIGHT_RED, faust_err_msg);
-                                    }
-                                    DspState::Loaded(dsp) => {
+                    egui::CentralPanel::default().show(egui_ctx, |ui| {
+                        egui::ScrollArea::both()
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| match &*dsp_state_arc.read().unwrap() {
+                                DspState::NoDspScript => {
+                                    ui.label("-- No DSP --");
+                                }
+                                DspState::Failed(faust_err_msg) => {
+                                    ui.colored_label(egui::Color32::LIGHT_RED, faust_err_msg);
+                                }
+                                DspState::Loaded(dsp) => {
+                                    ui.style_mut().wrap = Some(false);
+                                    let margin = egui::Margin {
+                                        left: 0.0,
+                                        right: 5.0,
+                                        top: 0.0,
+                                        bottom: 8.0,
+                                    };
+                                    egui::Frame::default().outer_margin(margin).show(ui, |ui| {
                                         central_panel_contents(
                                             ui,
                                             &mut *dsp.widgets().lock().unwrap(),
                                             false,
-                                        );
-                                    }
-                                });
-                        });
+                                        )
+                                    });
+                                }
+                            });
+                    });
                 }
             },
         )
