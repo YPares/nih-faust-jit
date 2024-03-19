@@ -23,14 +23,14 @@ impl BoxLayout {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ButtonLayout {
-    GateButton,
+    Held,
     Checkbox,
 }
 
 impl ButtonLayout {
     fn from_decl_type(typ: WWidgetDeclType) -> Self {
         match typ {
-            WWidgetDeclType::BUTTON => Self::GateButton,
+            WWidgetDeclType::BUTTON => Self::Held,
             WWidgetDeclType::CHECK_BUTTON => Self::Checkbox,
             _ => panic!("Not a ButtonLayout"),
         }

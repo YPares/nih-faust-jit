@@ -176,16 +176,18 @@ pub fn central_panel_contents(ui: &mut egui::Ui, widgets: &mut [DspWidget<'_>], 
                 label,
                 zone,
             } => match layout {
-                ButtonLayout::GateButton => {
-                    let mut btn = egui::Button::new(&*label).sense(egui::Sense::drag());
+                ButtonLayout::Held => {
+                    let mut button = egui::Button::new(&*label).sense(egui::Sense::drag());
                     if **zone != 0.0 {
-                        // If was held last frame:
-                        btn = btn.fill(egui::Color32::YELLOW);
+                        // If the gate is currently on:
+                        button = button.fill(egui::Color32::from_rgb(115, 115, 50));
                     }
-                    if ui.add(btn).dragged() {
-                        // If the button is currently held:
+                    let rsp = ui.add(button);
+                    if rsp.drag_started() {
+                        // If the button just started to be held:
                         **zone = 1.0;
-                    } else {
+                    } else if rsp.drag_released() {
+                        // If the button was just released:
                         **zone = 0.0;
                     }
                 }
