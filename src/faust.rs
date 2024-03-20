@@ -6,7 +6,7 @@ use std::{
     ptr::null_mut,
     sync::{
         atomic::{AtomicPtr, Ordering},
-        Mutex,
+        Mutex, RwLock,
     },
 };
 
@@ -24,7 +24,11 @@ pub struct SingletonDsp {
     /// function being called by two threads at the same time
     instance: Mutex<AtomicPtr<WDsp>>,
     uis: AtomicPtr<WUIs>,
-    widgets: Mutex<Vec<DspWidget<&'static mut f32>>>,
+    widgets: RwLock<Vec<DspWidget<&'static mut f32>>>,
+    // This static lifetime here is just to simplify the implementation. It will
+    // never be seen from the outside. widgets' zones are valid as long as the
+    // whole SingletonDsp is valid (as they point to values contains internally
+    // in the WDsp). See the widgets() function
 }
 // AtomicPtr is used above only to make the pointers (and thus the whole type)
 // Sync. The pointers themselves will never be mutated.
@@ -63,7 +67,7 @@ impl SingletonDsp {
             factory: AtomicPtr::new(null_mut()),
             instance: Mutex::new(AtomicPtr::new(null_mut())),
             uis: AtomicPtr::new(null_mut()),
-            widgets: Mutex::new(vec![]),
+            widgets: RwLock::new(vec![]),
         };
         let [script_path_c, dsp_libs_path_c] = [script_path, dsp_libs_path]
             .map(|s| CString::new(s).expect(&format!("{} failed to convert to CString", s)));
@@ -108,8 +112,10 @@ impl SingletonDsp {
         }
     }
 
-    pub fn widgets(&self) -> &Mutex<Vec<DspWidget<&'static mut f32>>> {
-        &self.widgets
+    pub fn widgets<'a>(&'a self) -> &'a RwLock<Vec<DspWidget<&'a mut f32>>> {
+        unsafe { std::mem::transmute(&self.widgets) }
+        // We are actually exporting the correct lifetimes of the zones here, as
+        // the zones in the widgets are only valid as long as self is
     }
 
     pub fn process_buffer<T: Plugin>(

@@ -246,7 +246,7 @@ impl Plugin for NihFaustJit {
                                     egui::Frame::default().outer_margin(margin).show(ui, |ui| {
                                         central_panel_contents(
                                             ui,
-                                            &mut *dsp.widgets().lock().unwrap(),
+                                            &mut *dsp.widgets().write().unwrap(),
                                             false,
                                         )
                                     });

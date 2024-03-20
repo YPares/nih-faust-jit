@@ -125,14 +125,14 @@ pub struct DspWidgetsBuilder {
 
 /// A memory zone corresponding to some parameter's current value
 pub trait Zone {
-    fn from_zone_ptr(ptr: *mut f32) -> Self;
-
+    unsafe fn from_zone_ptr(ptr: *mut f32) -> Self;
+    
     fn cur_value(&self) -> f32;
 }
 
 impl<'a> Zone for &'a mut f32 {
-    fn from_zone_ptr(ptr: *mut f32) -> Self {
-        unsafe { ptr.as_mut() }.unwrap()
+    unsafe fn from_zone_ptr(ptr: *mut f32) -> Self {
+        ptr.as_mut().unwrap()
     }
 
     fn cur_value(&self) -> f32 {
@@ -170,12 +170,12 @@ impl DspWidgetsBuilder {
                 W::BUTTON | W::CHECK_BUTTON => DspWidget::Button {
                     layout: ButtonLayout::from_decl_type(decl.typ),
                     label,
-                    zone: Zone::from_zone_ptr(decl.zone),
+                    zone: unsafe { Zone::from_zone_ptr(decl.zone) },
                 },
                 W::HORIZONTAL_SLIDER | W::VERTICAL_SLIDER | W::NUM_ENTRY => DspWidget::Numeric {
                     layout: NumericLayout::from_decl_type(decl.typ),
                     label,
-                    zone: Zone::from_zone_ptr(decl.zone),
+                    zone: unsafe { Zone::from_zone_ptr(decl.zone) },
                     init: decl.init,
                     min: decl.min,
                     max: decl.max,
@@ -184,7 +184,7 @@ impl DspWidgetsBuilder {
                 W::HORIZONTAL_BARGRAPH | W::VERTICAL_BARGRAPH => DspWidget::Bargraph {
                     layout: BargraphLayout::from_decl_type(decl.typ),
                     label,
-                    zone: Zone::from_zone_ptr(decl.zone),
+                    zone: unsafe { Zone::from_zone_ptr(decl.zone) },
                     min: decl.min,
                     max: decl.max,
                 },
