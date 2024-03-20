@@ -5,7 +5,9 @@ use std::{
     hash::{Hash, Hasher},
 };
 
-#[derive(Debug, PartialEq, Eq)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum BoxLayout {
     Horizontal,
     Vertical,
@@ -21,7 +23,7 @@ impl BoxLayout {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum ButtonLayout {
     Held,
     Checkbox,
@@ -37,7 +39,7 @@ impl ButtonLayout {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum NumericLayout {
     NumEntry,
     HorizontalSlider,
@@ -55,7 +57,7 @@ impl NumericLayout {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum BargraphLayout {
     Horizontal,
     Vertical,
@@ -73,26 +75,26 @@ impl BargraphLayout {
 
 /// Lifetime 'a corresponds to that of the dsp object
 #[derive(Debug)]
-pub enum DspWidget<'a> {
+pub enum DspWidget<Z> {
     TabGroup {
         label: String,
-        inner: Vec<DspWidget<'a>>,
+        inner: Vec<DspWidget<Z>>,
         selected: usize,
     },
     Box {
         layout: BoxLayout,
         label: String,
-        inner: Vec<DspWidget<'a>>,
+        inner: Vec<DspWidget<Z>>,
     },
     Button {
         layout: ButtonLayout,
         label: String,
-        zone: &'a mut f32,
+        zone: Z,
     },
     Numeric {
         layout: NumericLayout,
         label: String,
-        zone: &'a mut f32,
+        zone: Z,
         init: f32,
         min: f32,
         max: f32,
@@ -101,7 +103,7 @@ pub enum DspWidget<'a> {
     Bargraph {
         layout: BargraphLayout,
         label: String,
-        zone: &'a mut f32,
+        zone: Z,
         min: f32,
         max: f32,
     },
@@ -112,8 +114,8 @@ pub enum DspWidget<'a> {
     // },
 }
 
-impl<'a> DspWidget<'a> {
-    fn inner_mut(&mut self) -> Option<&mut Vec<DspWidget<'a>>> {
+impl<Z> DspWidget<Z> {
+    fn inner_mut(&mut self) -> Option<&mut Vec<Self>> {
         match self {
             DspWidget::TabGroup { inner, .. } => Some(inner),
             DspWidget::Box { inner, .. } => Some(inner),
@@ -136,6 +138,23 @@ pub struct DspWidgetsBuilder {
     widget_decls: VecDeque<(String, WWidgetDecl)>,
 }
 
+/// A memory zone corresponding to some parameter's current value
+pub trait Zone {
+    fn from_zone_ptr(ptr: *mut f32) -> Self;
+
+    fn cur_value(&self) -> f32;
+}
+
+impl<'a> Zone for &'a mut f32 {
+    fn from_zone_ptr(ptr: *mut f32) -> Self {
+        unsafe { ptr.as_mut() }.unwrap()
+    }
+
+    fn cur_value(&self) -> f32 {
+        **self
+    }
+}
+
 impl DspWidgetsBuilder {
     pub fn new() -> Self {
         Self {
@@ -143,7 +162,7 @@ impl DspWidgetsBuilder {
         }
     }
 
-    pub fn build_widgets<'a>(mut self, widget_list: &mut Vec<DspWidget<'a>>) {
+    pub fn build_widgets<Z: Zone>(mut self, widget_list: &mut Vec<DspWidget<Z>>) {
         self.build_widgets_rec(widget_list);
         assert!(
             self.widget_decls.is_empty(),
@@ -153,7 +172,7 @@ impl DspWidgetsBuilder {
 
     /// To be called _after_ faust's buildUserInterface has finished, ie. after
     /// w_createUIs has finished. 'a is the lifetime of the DSP itself
-    fn build_widgets_rec<'a>(&mut self, cur_level: &mut Vec<DspWidget<'a>>) {
+    fn build_widgets_rec<Z: Zone>(&mut self, cur_level: &mut Vec<DspWidget<Z>>) {
         use WWidgetDeclType as W;
         while let Some((label, decl)) = self.widget_decls.pop_front() {
             let mut widget = match decl.typ {
@@ -171,12 +190,12 @@ impl DspWidgetsBuilder {
                 W::BUTTON | W::CHECK_BUTTON => DspWidget::Button {
                     layout: ButtonLayout::from_decl_type(decl.typ),
                     label,
-                    zone: unsafe { decl.zone.as_mut() }.unwrap(),
+                    zone: Zone::from_zone_ptr(decl.zone),
                 },
                 W::HORIZONTAL_SLIDER | W::VERTICAL_SLIDER | W::NUM_ENTRY => DspWidget::Numeric {
                     layout: NumericLayout::from_decl_type(decl.typ),
                     label,
-                    zone: unsafe { decl.zone.as_mut() }.unwrap(),
+                    zone: Zone::from_zone_ptr(decl.zone),
                     init: decl.init,
                     min: decl.min,
                     max: decl.max,
@@ -185,7 +204,7 @@ impl DspWidgetsBuilder {
                 W::HORIZONTAL_BARGRAPH | W::VERTICAL_BARGRAPH => DspWidget::Bargraph {
                     layout: BargraphLayout::from_decl_type(decl.typ),
                     label,
-                    zone: unsafe { decl.zone.as_mut() }.unwrap(),
+                    zone: Zone::from_zone_ptr(decl.zone),
                     min: decl.min,
                     max: decl.max,
                 },

@@ -24,7 +24,7 @@ pub struct SingletonDsp {
     /// function being called by two threads at the same time
     instance: Mutex<AtomicPtr<WDsp>>,
     uis: AtomicPtr<WUIs>,
-    widgets: Mutex<Vec<DspWidget<'static>>>,
+    widgets: Mutex<Vec<DspWidget<&'static mut f32>>>,
 }
 // AtomicPtr is used above only to make the pointers (and thus the whole type)
 // Sync. The pointers themselves will never be mutated.
@@ -108,7 +108,7 @@ impl SingletonDsp {
         }
     }
 
-    pub fn widgets(&self) -> &Mutex<Vec<DspWidget<'static>>> {
+    pub fn widgets(&self) -> &Mutex<Vec<DspWidget<&'static mut f32>>> {
         &self.widgets
     }
 

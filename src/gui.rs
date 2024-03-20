@@ -119,7 +119,7 @@ fn hgroup_header_icon(ui: &mut egui::Ui, openness: f32, response: &egui::Respons
     }
 }
 
-pub fn central_panel_contents(ui: &mut egui::Ui, widgets: &mut [DspWidget<'_>], in_a_tab: bool) {
+pub fn central_panel_contents(ui: &mut egui::Ui, widgets: &mut [DspWidget<&mut f32>], in_a_tab: bool) {
     for w in widgets {
         match w {
             DspWidget::TabGroup {
