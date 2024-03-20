@@ -21,7 +21,7 @@ instruments but do not contain a `[nvoices:xxx]` metadata.
 
 ## UI
 
-![screenshot](./misc/screenshot.png)
+![screenshot](./_misc/screenshot.png)
 
 - DSP widgets are shown in a two-directional scrollable panel (you can also
   left-click on empty space and drag to pan around)

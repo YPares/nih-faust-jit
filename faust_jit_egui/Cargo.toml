@@ -4,14 +4,12 @@ version = "0.1.0"
 edition = "2021"
 authors = ["Yves Pares <yves.pares@gmail.com>"]
 license = "ISC"
-# homepage = "https://youtu.be/dQw4w9WgXcQ"
+homepage = "https://github.com/YPares/nih-faust-jit"
 description = "egui widgets for faust_jit"
 
 [lib]
 crate-type = ["lib"]
 
 [dependencies]
-# Remove the `assert_process_allocs` feature to allow allocations on the audio
-# thread in debug builds.
 faust_jit = { path = "../faust_jit" }
 egui = "*"
