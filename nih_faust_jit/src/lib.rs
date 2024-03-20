@@ -268,17 +268,18 @@ impl Plugin for NihFaustJit {
         if let DspState::Loaded(dsp) = &*self.dsp_state.read().unwrap() {
             // Handling MIDI events:
             while let Some(midi_event) = process_ctx.next_event() {
-                //log!(Level::Debug, "Received: {:?}", midi_event);
                 let time = midi_event.timing() as f64;
                 match midi_event.as_midi() {
-                    None | Some(MidiResult::SysEx(_, _)) => {
-                        //log!(Level::Debug, "Ignored midi_event");
-                    }
+                    None | Some(MidiResult::SysEx(_, _)) => { /* Wi ignore SysEx messages */ }
                     Some(MidiResult::Basic(bytes)) => dsp.handle_midi_event(time, bytes),
                 }
             }
 
-            dsp.process_buffer(buffer.as_slice());
+            if let [left, right] = buffer.as_slice() {
+                dsp.process_buffers(left, right);
+            } else {
+                panic!("Should have received two buffers");
+            }
         }
 
         for channel_samples in buffer.iter_samples() {

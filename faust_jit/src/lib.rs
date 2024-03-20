@@ -122,16 +122,16 @@ impl SingletonDsp {
         }
     }
 
-    pub fn process_buffer(&self, buf_slice: &mut [&mut [f32]]) {
-        assert!(buf_slice.len() == 2);
-        let num_samples = buf_slice[0].len();
-        let mut buf_ptrs = [buf_slice[0].as_mut_ptr(), buf_slice[1].as_mut_ptr()];
+    /// This function should be called _after_ all MIDI events for the current
+    /// buffer have been sent via handle_midi_events
+    pub fn process_buffers(&self, left_chan: &mut [f32], right_chan: &mut [f32]) {
+        let mut buf_ptrs = [left_chan.as_mut_ptr(), right_chan.as_mut_ptr()];
 
         let dsp = self.instance.lock().unwrap();
         unsafe {
             w_computeBuffer(
                 dsp.load(Ordering::Relaxed),
-                num_samples as i32,
+                left_chan.len() as i32,
                 buf_ptrs.as_mut_ptr(),
             );
         }
