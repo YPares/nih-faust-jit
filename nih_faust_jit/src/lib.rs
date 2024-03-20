@@ -9,9 +9,10 @@ use std::sync::{atomic::Ordering, Arc, RwLock};
 use strum_macros::EnumIter;
 
 use faust_jit::SingletonDsp;
+use faust_jit_egui::faust_widgets_ui;
 use gui::*;
 
-pub mod gui;
+mod gui;
 
 #[derive(Debug)]
 enum DspState {
@@ -244,11 +245,7 @@ impl Plugin for NihFaustJit {
                                         bottom: 8.0,
                                     };
                                     egui::Frame::default().outer_margin(margin).show(ui, |ui| {
-                                        central_panel_contents(
-                                            ui,
-                                            &mut *dsp.widgets().write().unwrap(),
-                                            false,
-                                        )
+                                        faust_widgets_ui(ui, &mut *dsp.widgets().write().unwrap())
                                     });
                                 }
                             });

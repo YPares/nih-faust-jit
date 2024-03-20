@@ -19,6 +19,7 @@ path = "src/standalone.rs"
 # Remove the `assert_process_allocs` feature to allow allocations on the audio
 # thread in debug builds.
 faust_jit = { path = "../faust_jit" }
+faust_jit_egui = { path = "../faust_jit_egui" }
 nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", features = ["assert_process_allocs", "standalone"] }
 nih_plug_egui = { git = "https://github.com/robbert-vdh/nih-plug.git" }
 egui_file = "0.16.*"

@@ -1,6 +1,11 @@
 [workspace]
 resolver = "2"
-members = ["faust_jit", "nih_faust_jit", "nih_faust_jit/xtask"]
+members = [
+    "faust_jit",
+    "faust_jit_egui",
+    "nih_faust_jit",
+    "nih_faust_jit/xtask",
+]
 
 [profile.release]
 lto = "thin"
