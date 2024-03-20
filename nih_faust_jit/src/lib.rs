@@ -1,5 +1,6 @@
 use nih_plug::{
     log::{log, Level},
+    midi::MidiResult,
     prelude::*,
 };
 use nih_plug_egui::{create_egui_editor, egui, EguiState};
@@ -7,10 +8,9 @@ use serde::{Deserialize, Serialize};
 use std::sync::{atomic::Ordering, Arc, RwLock};
 use strum_macros::EnumIter;
 
-use faust::SingletonDsp;
+use faust_jit::SingletonDsp;
 use gui::*;
 
-pub mod faust;
 pub mod gui;
 
 #[derive(Debug)]
@@ -269,7 +269,19 @@ impl Plugin for NihFaustJit {
         process_ctx: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
         if let DspState::Loaded(dsp) = &*self.dsp_state.read().unwrap() {
-            dsp.process_buffer(buffer, process_ctx);
+            // Handling MIDI events:
+            while let Some(midi_event) = process_ctx.next_event() {
+                //log!(Level::Debug, "Received: {:?}", midi_event);
+                let time = midi_event.timing() as f64;
+                match midi_event.as_midi() {
+                    None | Some(MidiResult::SysEx(_, _)) => {
+                        //log!(Level::Debug, "Ignored midi_event");
+                    }
+                    Some(MidiResult::Basic(bytes)) => dsp.handle_midi_event(time, bytes),
+                }
+            }
+
+            dsp.process_buffer(buffer.as_slice());
         }
 
         for channel_samples in buffer.iter_samples() {

@@ -1,0 +1,31 @@
+[package]
+name = "nih_faust_jit"
+version = "0.1.0"
+edition = "2021"
+authors = ["Yves Pares <yves.pares@gmail.com>"]
+license = "ISC"
+# homepage = "https://youtu.be/dQw4w9WgXcQ"
+description = "Loading Faust DSP scripts"
+default-run = "nih_faust_jit_standalone"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[[bin]]
+name = "nih_faust_jit_standalone"
+path = "src/standalone.rs"
+
+[dependencies]
+# Remove the `assert_process_allocs` feature to allow allocations on the audio
+# thread in debug builds.
+faust_jit = { path = "../faust_jit" }
+nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", features = ["assert_process_allocs", "standalone"] }
+nih_plug_egui = { git = "https://github.com/robbert-vdh/nih-plug.git" }
+egui_file = "0.16.*"
+# Uncomment the below line to disable the on-by-default VST3 feature to remove
+# the GPL compatibility requirement
+# nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", default_features = false, features = ["assert_process_allocs"] }
+serde = "*"
+crossbeam = "*"
+strum = "0.26.*"
+strum_macros = "0.26.*"

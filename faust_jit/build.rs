@@ -15,7 +15,7 @@ fn main() {
     );
 
     // Tell cargo to invalidate the built crate whenever the wrapper changes
-    println!("cargo:rerun-if-changed=src/wrapper.hpp");
+    println!("cargo:rerun-if-changed=c_src/wrapper.hpp");
 
     let faust_headers_path =
         env::var("FAUST_HEADERS_PATH").expect("env var FAUST_HEADERS_PATH not found");
@@ -25,7 +25,7 @@ fn main() {
     let bindings = bindgen::Builder::default()
         // The input header we would like to generate
         // bindings for.
-        .header("src/wrapper.hpp")
+        .header("c_src/wrapper.hpp")
         //.clang_arg(format!("-I{}", faust_headers_path))
         // Tell cargo to invalidate the built crate whenever any of the
         // included header files changed.
@@ -46,6 +46,6 @@ fn main() {
         .cpp(true)
         .std("c++14")
         .include(faust_headers_path)
-        .file("src/wrapper.cpp")
+        .file("c_src/wrapper.cpp")
         .compile("wrapper-lib");
 }

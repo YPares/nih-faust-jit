@@ -1,6 +1,3 @@
-use nih_plug::{
-    buffer::Buffer, context::process::ProcessContext, midi::MidiResult, plugin::Plugin,
-};
 use std::{
     ffi::{c_void, CStr, CString},
     ptr::null_mut,
@@ -118,38 +115,23 @@ impl SingletonDsp {
         // the zones in the widgets are only valid as long as self is
     }
 
-    pub fn process_buffer<T: Plugin>(
-        &self,
-        audio_buf: &mut Buffer,
-        process_ctx: &mut impl ProcessContext<T>,
-    ) {
-        //log!(Level::Debug, "process_buffer called with {} samples", audio_buf.samples());
-
-        // Handling MIDI events:
-        while let Some(midi_event) = process_ctx.next_event() {
-            //log!(Level::Debug, "Received: {:?}", midi_event);
-            let time = midi_event.timing() as f64;
-            match midi_event.as_midi() {
-                None | Some(MidiResult::SysEx(_, _)) => {
-                    //log!(Level::Debug, "Ignored midi_event");
-                }
-                Some(MidiResult::Basic(bytes)) => {
-                    let uis = self.uis.load(Ordering::Relaxed);
-                    unsafe {
-                        w_handleMidiEvent(uis, time, bytes.as_ptr());
-                    }
-                }
-            }
+    pub fn handle_midi_event(&self, timestamp: f64, midi_data: [u8; 3]) {
+        let uis = self.uis.load(Ordering::Relaxed);
+        unsafe {
+            w_handleMidiEvent(uis, timestamp, midi_data.as_ptr());
         }
+    }
 
-        let buf_slice = audio_buf.as_slice();
+    pub fn process_buffer(&self, buf_slice: &mut [&mut [f32]]) {
+        assert!(buf_slice.len() == 2);
+        let num_samples = buf_slice[0].len();
         let mut buf_ptrs = [buf_slice[0].as_mut_ptr(), buf_slice[1].as_mut_ptr()];
 
         let dsp = self.instance.lock().unwrap();
         unsafe {
             w_computeBuffer(
                 dsp.load(Ordering::Relaxed),
-                audio_buf.samples() as i32,
+                num_samples as i32,
                 buf_ptrs.as_mut_ptr(),
             );
         }

@@ -1,0 +1,17 @@
+[package]
+name = "faust_jit"
+version = "0.1.0"
+edition = "2021"
+authors = ["Yves Pares <yves.pares@gmail.com>"]
+license = "ISC"
+# homepage = "https://youtu.be/dQw4w9WgXcQ"
+description = "Loading Faust DSP scripts"
+
+[lib]
+crate-type = ["lib"]
+
+[dependencies]
+
+[build-dependencies]
+cc = "1.0.*"
+bindgen = "0.69.*"

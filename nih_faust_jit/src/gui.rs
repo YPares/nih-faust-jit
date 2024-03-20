@@ -2,7 +2,8 @@ use nih_plug::prelude::*;
 use nih_plug_egui::egui;
 use std::sync::{Arc, RwLock};
 
-use crate::{faust::widgets::*, DspType};
+use faust_jit::widgets::*;
+use crate::DspType;
 
 pub fn enum_combobox<T: strum::IntoEnumIterator + PartialEq + std::fmt::Debug>(
     ui: &mut egui::Ui,
