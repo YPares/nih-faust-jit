@@ -245,7 +245,9 @@ impl Plugin for NihFaustJit {
                                         bottom: 8.0,
                                     };
                                     egui::Frame::default().outer_margin(margin).show(ui, |ui| {
-                                        faust_widgets_ui(ui, &mut *dsp.widgets().write().unwrap())
+                                        dsp.with_widgets_mut(|widgets| {
+                                            faust_widgets_ui(ui, widgets)
+                                        })
                                     });
                                 }
                             });
@@ -270,7 +272,7 @@ impl Plugin for NihFaustJit {
             while let Some(midi_event) = process_ctx.next_event() {
                 let time = midi_event.timing() as f64;
                 match midi_event.as_midi() {
-                    None | Some(MidiResult::SysEx(_, _)) => { /* Wi ignore SysEx messages */ }
+                    None | Some(MidiResult::SysEx(_, _)) => { /* We ignore SysEx messages */ }
                     Some(MidiResult::Basic(bytes)) => dsp.handle_midi_event(time, bytes),
                 }
             }

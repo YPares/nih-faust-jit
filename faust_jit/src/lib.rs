@@ -11,7 +11,7 @@ use widgets::*;
 use wrapper::*;
 
 pub mod widgets;
-pub mod wrapper;
+mod wrapper;
 
 #[derive(Debug)]
 /// RAII interface to faust DSP factories and instances
@@ -23,9 +23,9 @@ pub struct SingletonDsp {
     uis: AtomicPtr<WUIs>,
     widgets: RwLock<Vec<DspWidget<&'static mut f32>>>,
     // This static lifetime here is just to simplify the implementation. It will
-    // never be seen from the outside. widgets' zones are valid as long as the
-    // whole SingletonDsp is valid (as they point to values contains internally
-    // in the WDsp). See the widgets() function
+    // never be seen from the outside, as widgets' zones are only valid as long
+    // as the whole SingletonDsp is valid (as they point to values that are
+    // contained inside the WDsp object).
 }
 // AtomicPtr is used above only to make the pointers (and thus the whole type)
 // Sync. The pointers themselves will never be mutated.
@@ -109,12 +109,19 @@ impl SingletonDsp {
         }
     }
 
-    pub fn widgets<'a>(&'a self) -> &'a RwLock<Vec<DspWidget<&'a mut f32>>> {
-        unsafe { std::mem::transmute(&self.widgets) }
-        // We are actually exporting the correct lifetimes of the zones here, as
-        // the zones in the widgets are only valid as long as self is
+    /// If another thread is calling with_mut_widgets, this will wait until it
+    /// terminates
+    pub fn with_widgets<T>(&self, f: impl FnOnce(&[DspWidget<&mut f32>]) -> T) -> T {
+        f(&*self.widgets.read().unwrap())
     }
 
+    /// If another thread is already calling with_mut_widgets, this will wait
+    /// until it terminates
+    pub fn with_widgets_mut<T>(&self, f: impl FnOnce(&mut [DspWidget<&mut f32>]) -> T) -> T {
+        f(&mut *self.widgets.write().unwrap())
+    }
+
+    /// To be called for each midi event for the current audio buffer
     pub fn handle_midi_event(&self, timestamp: f64, midi_data: [u8; 3]) {
         let uis = self.uis.load(Ordering::Relaxed);
         unsafe {
@@ -123,7 +130,10 @@ impl SingletonDsp {
     }
 
     /// This function should be called _after_ all MIDI events for the current
-    /// buffer have been sent via handle_midi_events
+    /// audio buffer have been sent via handle_midi_event
+    ///
+    /// If another thread is already calling process_buffers, this will wait
+    /// until it terminates
     pub fn process_buffers(&self, left_chan: &mut [f32], right_chan: &mut [f32]) {
         let mut buf_ptrs = [left_chan.as_mut_ptr(), right_chan.as_mut_ptr()];
 
