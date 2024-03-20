@@ -119,13 +119,17 @@ fn hgroup_header_icon(ui: &mut egui::Ui, openness: f32, response: &egui::Respons
     }
 }
 
-pub fn central_panel_contents(ui: &mut egui::Ui, widgets: &mut [DspWidget<&mut f32>], in_a_tab: bool) {
+pub fn central_panel_contents(
+    ui: &mut egui::Ui,
+    widgets: &mut [DspWidget<&mut f32>],
+    in_a_tab: bool,
+) {
     for w in widgets {
         match w {
-            DspWidget::TabGroup {
+            DspWidget::Box {
+                layout: BoxLayout::Tab { selected },
                 label,
                 inner,
-                selected,
             } => {
                 let id = ui.make_persistent_id(&label);
                 egui::collapsing_header::CollapsingState::load_with_default_open(
@@ -150,13 +154,14 @@ pub fn central_panel_contents(ui: &mut egui::Ui, widgets: &mut [DspWidget<&mut f
                 });
             }
             DspWidget::Box {
-                layout,
+                layout, // Not a Tab
                 label,
                 inner,
             } => {
                 let egui_layout = match layout {
                     BoxLayout::Horizontal => egui::Layout::left_to_right(egui::Align::Min),
                     BoxLayout::Vertical => egui::Layout::top_down(egui::Align::Min),
+                    _ => panic!("Cannot be Tab here"),
                 };
                 let mut draw_inner = |ui: &mut egui::Ui| {
                     ui.with_layout(egui_layout, |ui| central_panel_contents(ui, inner, false))

@@ -5,10 +5,9 @@ use std::{
     hash::{Hash, Hasher},
 };
 
-use serde::{Deserialize, Serialize};
-
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum BoxLayout {
+    Tab { selected: usize },
     Horizontal,
     Vertical,
 }
@@ -18,6 +17,7 @@ impl BoxLayout {
         match typ {
             WWidgetDeclType::HORIZONTAL_BOX => Self::Horizontal,
             WWidgetDeclType::VERTICAL_BOX => Self::Vertical,
+            WWidgetDeclType::TAB_BOX => Self::Tab { selected: 0 },
             _ => panic!("Not a BoxLayout"),
         }
     }
@@ -73,14 +73,8 @@ impl BargraphLayout {
     }
 }
 
-/// Lifetime 'a corresponds to that of the dsp object
 #[derive(Debug)]
 pub enum DspWidget<Z> {
-    TabGroup {
-        label: String,
-        inner: Vec<DspWidget<Z>>,
-        selected: usize,
-    },
     Box {
         layout: BoxLayout,
         label: String,
@@ -115,17 +109,8 @@ pub enum DspWidget<Z> {
 }
 
 impl<Z> DspWidget<Z> {
-    fn inner_mut(&mut self) -> Option<&mut Vec<Self>> {
-        match self {
-            DspWidget::TabGroup { inner, .. } => Some(inner),
-            DspWidget::Box { inner, .. } => Some(inner),
-            _ => None,
-        }
-    }
-
     pub fn label(&self) -> &str {
         match self {
-            DspWidget::TabGroup { label, .. } => label,
             DspWidget::Box { label, .. } => label,
             DspWidget::Button { label, .. } => label,
             DspWidget::Numeric { label, .. } => label,
@@ -177,12 +162,7 @@ impl DspWidgetsBuilder {
         while let Some((label, decl)) = self.widget_decls.pop_front() {
             let mut widget = match decl.typ {
                 W::CLOSE_BOX => return,
-                W::TAB_BOX => DspWidget::TabGroup {
-                    label,
-                    inner: vec![],
-                    selected: 0,
-                },
-                W::HORIZONTAL_BOX | W::VERTICAL_BOX => DspWidget::Box {
+                W::TAB_BOX | W::HORIZONTAL_BOX | W::VERTICAL_BOX => DspWidget::Box {
                     layout: BoxLayout::from_decl_type(decl.typ),
                     label,
                     inner: vec![],
@@ -209,7 +189,7 @@ impl DspWidgetsBuilder {
                     max: decl.max,
                 },
             };
-            if let Some(inner) = widget.inner_mut() {
+            if let DspWidget::Box { inner, .. } = &mut widget {
                 // We recurse, so as to add to the newly opened box:
                 self.build_widgets_rec(inner);
             }
