@@ -3,21 +3,15 @@ use nih_plug::{
     midi::MidiResult,
     prelude::*,
 };
-use nih_plug_egui::{create_egui_editor, egui, EguiState};
 use serde::{Deserialize, Serialize};
 use std::sync::{atomic::Ordering, Arc, RwLock};
-use strum_macros::EnumIter;
 
-use faust_jit::SingletonDsp;
-use faust_jit_egui::faust_widgets_ui;
-use gui::*;
-
-mod gui;
+mod editor;
 
 #[derive(Debug)]
 enum DspState {
     NoDspScript,
-    Loaded(SingletonDsp),
+    Loaded(faust_jit::SingletonDsp),
     Failed(String),
 }
 
@@ -39,13 +33,25 @@ struct NihFaustJitParams {
     pub gain: FloatParam,
 
     #[persist = "editor-state"]
-    editor_state: Arc<EguiState>,
+    nih_egui_state: Arc<nih_plug_egui::EguiState>,
 
     #[persist = "selected-paths"]
     selected_paths: Arc<RwLock<SelectedPaths>>,
 
     #[persist = "dsp-nvoices"]
     dsp_nvoices: Arc<RwLock<i32>>,
+}
+
+impl NihFaustJit {
+    /// Clone from the plugin the Arcs that the GUI thread will need
+    pub(crate) fn editor_arcs(&self) -> editor::EditorArcs {
+        editor::EditorArcs {
+            nih_egui_state: Arc::clone(&self.params.nih_egui_state),
+            selected_paths: Arc::clone(&self.params.selected_paths),
+            dsp_state: Arc::clone(&self.dsp_state),
+            dsp_nvoices: Arc::clone(&self.params.dsp_nvoices),
+        }
+    }
 }
 
 impl Default for NihFaustJit {
@@ -64,7 +70,7 @@ impl Default for NihFaustJitParams {
             gain: FloatParam::new("Gain", 1.0, FloatRange::Linear { min: 0.0, max: 1.0 })
                 .with_smoother(SmoothingStyle::Linear(50.0)),
 
-            editor_state: EguiState::from_size(800, 700),
+            nih_egui_state: nih_plug_egui::EguiState::from_size(800, 700),
 
             selected_paths: Arc::new(RwLock::new(SelectedPaths {
                 dsp_script: None,
@@ -80,7 +86,7 @@ pub enum Tasks {
     ReloadDsp,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, EnumIter)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, strum_macros::EnumIter)]
 pub enum DspType {
     AutoDetect,
     Effect,
@@ -150,7 +156,7 @@ impl Plugin for NihFaustJit {
                 let dsp_nvoices = *dsp_nvoices_arc.read().unwrap();
                 let new_dsp_state = match &selected_paths.dsp_script {
                     Some(script_path) => {
-                        match SingletonDsp::from_file(
+                        match faust_jit::SingletonDsp::from_file(
                             script_path.to_str().unwrap(),
                             selected_paths.dsp_lib_path.to_str().unwrap(),
                             sample_rate,
@@ -199,62 +205,7 @@ impl Plugin for NihFaustJit {
     }
 
     fn editor(&mut self, async_executor: AsyncExecutor<Self>) -> Option<Box<dyn Editor>> {
-        let selected_paths_arc = Arc::clone(&self.params.selected_paths);
-        let dsp_nvoices_arc = Arc::clone(&self.params.dsp_nvoices);
-        let dsp_state_arc = Arc::clone(&self.dsp_state);
-        let editor_state_arc = Arc::clone(&self.params.editor_state);
-
-        create_egui_editor(
-            Arc::clone(&self.params.editor_state),
-            (None, None),
-            |_, _| {},
-            move |egui_ctx, _param_setter, (dsp_script_dialog, dsp_lib_path_dialog)| {
-                if editor_state_arc.is_open() {
-                    // Top panel (DSP settings, loading):
-                    egui::TopBottomPanel::top("DSP loading")
-                        .frame(egui::Frame::default().inner_margin(8.0))
-                        .show(egui_ctx, |ui| {
-                            top_panel_contents(
-                                &async_executor,
-                                egui_ctx,
-                                ui,
-                                &dsp_nvoices_arc,
-                                &selected_paths_arc,
-                                dsp_lib_path_dialog,
-                                dsp_script_dialog,
-                            );
-                        });
-
-                    // Central panel (plugin's GUI):
-                    egui::CentralPanel::default().show(egui_ctx, |ui| {
-                        egui::ScrollArea::both()
-                            .auto_shrink([false, false])
-                            .show(ui, |ui| match &*dsp_state_arc.read().unwrap() {
-                                DspState::NoDspScript => {
-                                    ui.label("-- No DSP --");
-                                }
-                                DspState::Failed(faust_err_msg) => {
-                                    ui.colored_label(egui::Color32::LIGHT_RED, faust_err_msg);
-                                }
-                                DspState::Loaded(dsp) => {
-                                    ui.style_mut().wrap = Some(false);
-                                    let margin = egui::Margin {
-                                        left: 0.0,
-                                        right: 5.0,
-                                        top: 0.0,
-                                        bottom: 8.0,
-                                    };
-                                    egui::Frame::default().outer_margin(margin).show(ui, |ui| {
-                                        dsp.with_widgets_mut(|widgets| {
-                                            faust_widgets_ui(ui, widgets)
-                                        })
-                                    });
-                                }
-                            });
-                    });
-                }
-            },
-        )
+        editor::create_editor(self.editor_arcs(), async_executor)
     }
 
     fn params(&self) -> Arc<dyn Params> {
