@@ -80,7 +80,11 @@ cargo run --release
 - Parameters changed via the GUI widgets are not saved in the plugin's state.
   They will return to the default value they have in the script when the
   plugin is reloaded.
-- Metadata (units, style, etc) for widgets are not taken into account so far.
+
+## Faust features not yet supported
+
+- Soundfiles
+- Metadata (units, style, etc) for widgets
 
 ## Crates
 
