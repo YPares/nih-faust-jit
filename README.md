@@ -69,9 +69,10 @@ cargo run --release
 
 ## Known shortcomings
 
-- Scripts are (re)loaded only when clicking on the `Set or reload DSP script`
-  button. Therefore, anytime you modify a parameter on the GUI, don't forget to
-  manually reload the script (just re-select the same file in the file picker).
+- Scripts are reloaded only when clicking on the `Set or reload DSP script`
+  button. Therefore, anytime you modify something in the top panel (ie. things
+  related to how the DSP should be loaded), don't forget to manually reload the
+  script (just re-select the same file in the file picker).
 - Volume can get high quickly when using polyphonic DSPs, because Faust voices
   are just summed together. The plugin exposes a Gain parameter to the host.
   Don't forget to use it if your instrument script doesn't perform some volume
@@ -89,14 +90,13 @@ exposed as lower-level crates, that could be reused in other projects:
 **`faust_jit`** defines the `SingletonDsp` type. It wraps the part of the
 `libfaust` API that is needed to:
 
-- load an effect or mono/poly instrument DSP from a file (via JIT compilation
-  with llvm),
+- load an effect or instrument DSP from a script,
 - process audio buffers with it,
-- extract the information necessary to build a GUI that can alter the DSP's
-  internal parameters (represented with the `DspWidget` type).
+- extract the information needed to build a GUI that can tweak the DSP's
+  internal parameters (represented as the `DspWidget` type).
   
 `faust_jit` is related to [rust-faust](https://github.com/Frando/rust-faust),
 but `rust-faust` deals only with static compilation of DSP scripts to Rust code.
 The `faust_jit` crate is not limited to stereo DSP scripts (only the plugin is).
 
-**`faust_jit_egui`** draws an `egui` GUI for a `SingletonDsp`.
+**`faust_jit_egui`** draws an `egui` GUI from the `DspWidget`s.
