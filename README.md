@@ -80,6 +80,8 @@ cargo run --release
 - Parameters changed via the GUI widgets are not saved in the plugin's state.
   They will return to the default value they have in the script when the
   plugin is reloaded.
+- Keyboard input is not supported (you cannot directly type a value in numeric entry).
+  This comes from [a bug in baseview](https://github.com/RustAudio/baseview/issues/152).
 
 ## Faust features not yet supported
 
