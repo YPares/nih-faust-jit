@@ -152,7 +152,7 @@ impl Plugin for NihFaustJit {
         Box::new(move |task| match task {
             Tasks::ReloadDsp => {
                 let sample_rate = sample_rate_arc.load(Ordering::Relaxed);
-                let selected_paths = &selected_paths_arc.read().unwrap();
+                let selected_paths = selected_paths_arc.read().unwrap();
                 let dsp_nvoices = *dsp_nvoices_arc.read().unwrap();
                 let new_dsp_state = match &selected_paths.dsp_script {
                     Some(script_path) => {
@@ -163,7 +163,15 @@ impl Plugin for NihFaustJit {
                             dsp_nvoices,
                         ) {
                             Err(msg) => DspState::Failed(msg),
-                            Ok(dsp) => DspState::Loaded(dsp),
+                            Ok(dsp) => {
+                                if dsp.info.num_inputs <= 2 && dsp.info.num_outputs <= 2 {
+                                    DspState::Loaded(dsp)
+                                } else {
+                                    DspState::Failed(
+                                        format!("DSP has {} input and {} output channels. Max is 2 for each", dsp.info.num_inputs, dsp.info.num_outputs)
+                                    )
+                                }
+                            }
                         }
                     }
                     None => DspState::NoDspScript,
@@ -228,11 +236,7 @@ impl Plugin for NihFaustJit {
                 }
             }
 
-            if let [left, right] = buffer.as_slice() {
-                dsp.process_buffers(left, right);
-            } else {
-                panic!("Should have received two buffers");
-            }
+            dsp.process_buffers(buffer.as_slice());
         }
 
         for channel_samples in buffer.iter_samples() {
