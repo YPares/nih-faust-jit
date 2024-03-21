@@ -162,10 +162,11 @@ impl SingletonDsp {
     /// until it terminates.
     ///
     /// The number of expected channels is max(self.info.num_inputs,
-    /// self.info.num_outputs). If audio_bufs contains MORE channels that what
-    /// the DSP expects, the excess channels will be ignored and will stay
-    /// untouched. If audio_bufs contains LESS channels that what the DSP
-    /// expects, this will panic.
+    /// self.info.num_outputs):
+    ///
+    ///   - if audio_bufs contains MORE channels, the excess channels will be
+    ///     ignored (ie. will stay untouched)
+    ///   - if audio_bufs contains LESS channels, this function will panic
     pub fn process_buffers(&self, audio_bufs: &mut [&mut [f32]]) {
         // First thing to do is to lock the DSP:
         let dsp = self.instance.lock().unwrap();
