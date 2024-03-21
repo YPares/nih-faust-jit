@@ -2,7 +2,7 @@ use nih_plug::prelude::*;
 use nih_plug_egui::egui;
 use std::sync::{Arc, RwLock};
 
-use crate::{DspState, DspType};
+use crate::{DspLoadingMode, DspState};
 
 /// Data shared between the plugin and the GUI thread
 pub(crate) struct EditorArcs {
@@ -49,7 +49,7 @@ pub(crate) fn create_editor(
                     egui::ScrollArea::both().auto_shrink([false, false]).show(
                         ui,
                         |ui| match &*arcs.dsp_state.read().unwrap() {
-                            DspState::NoDspScript => {
+                            DspState::NoDsp => {
                                 ui.label("-- No DSP --");
                             }
                             DspState::Failed(faust_err_msg) => {
@@ -101,21 +101,21 @@ fn top_panel_contents(
     // Setting the DSP type and (if applicable) number of voices:
 
     let mut nvoices = *arcs.dsp_nvoices.read().unwrap();
-    let mut selected_dsp_type = DspType::from_nvoices(nvoices);
+    let mut selected_dsp_type = DspLoadingMode::from_nvoices(nvoices);
     let last_dsp_type = selected_dsp_type;
     ui.horizontal(|ui| {
         ui.label("DSP type:");
         enum_combobox(ui, "dsp-type-combobox", &mut selected_dsp_type);
         match selected_dsp_type {
-            DspType::AutoDetect => {
+            DspLoadingMode::AutoDetect => {
                 nvoices = -1;
                 ui.label("DSP type and number of voices will be detected from script metadata");
             }
-            DspType::Effect => {
+            DspLoadingMode::Effect => {
                 nvoices = 0;
                 ui.label("DSP will be loaded as monophonic effect");
             }
-            DspType::Instrument => {
+            DspLoadingMode::Instrument => {
                 if selected_dsp_type != last_dsp_type {
                     // If we just changed dsp_type to
                     // Instrument, we need to set a default
@@ -171,7 +171,9 @@ fn top_panel_contents(
         if dialog.show(ui.ctx()).selected() {
             if let Some(file) = dialog.path() {
                 selected_paths.dsp_script = Some(file.to_path_buf());
-                async_executor.execute_background(crate::Tasks::ReloadDsp);
+                async_executor.execute_background(crate::Tasks::LoadDsp {
+                    restore_zones: false,
+                });
             }
         }
     }

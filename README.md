@@ -2,12 +2,15 @@
 
 A plugin to load Faust dsp files and JIT-compile them with LLVM. Limited to
 stereo audio (DSP scripts with more than 2 input/ouput chans will be refused).
-The selected DSP script is saved as part of the plugin state and therefore is
-saved with your DAW project. A two-part GUI is provided:
+It features a GUI to:
 
-- Select which script to load and where to look for the Faust libraries that
+- select which script to load and where to look for the Faust libraries that
 this script may import
-- Tweak the parameters described in the script (shown as various `egui` widgets)
+- tweak the DSP internal parameters described in the script (`hslider`,
+  `nentry`, etc. which we show as various `egui` widgets)
+
+The selected DSP script and its internal parameters are saved as part of the
+plugin state, and therefore are saved with your DAW project.
 
 Both effect and instrument DSPs are supported, with MIDI notes and CCs in both
 cases. The DSP script type is normally detected from its metadata. E.g. if the
@@ -77,9 +80,6 @@ cargo run --release
   are just summed together. The plugin exposes a Gain parameter to the host.
   Don't forget to use it if your instrument script doesn't perform some volume
   reduction already.
-- Parameters changed via the GUI widgets are not saved in the plugin's state.
-  They will return to the default value they have in the script when the
-  plugin is reloaded.
 - Keyboard input is not supported (you cannot directly type a value in numeric entry).
   This comes from [a bug in baseview](https://github.com/RustAudio/baseview/issues/152).
 

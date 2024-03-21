@@ -4,27 +4,58 @@ use nih_plug::{
     prelude::*,
 };
 use serde::{Deserialize, Serialize};
-use std::sync::{atomic::Ordering, Arc, RwLock};
+use std::{
+    collections::BTreeMap,
+    sync::{atomic::Ordering, Arc, RwLock},
+};
 
 mod editor;
 
 #[derive(Debug)]
 enum DspState {
-    NoDspScript,
+    NoDsp,
     Loaded(faust_jit::SingletonDsp),
     Failed(String),
+}
+
+struct DspStateArc {
+    dsp_state: Arc<RwLock<DspState>>,
+    dsp_zones_to_restore: Arc<RwLock<BTreeMap<String, String>>>,
+    // "zone" is the Faust name for a pointer to a value of an internal
+    // parameter of the DSP
+}
+
+unsafe impl Params for DspStateArc {
+    fn param_map(&self) -> Vec<(String, ParamPtr, String)> {
+        // DspStateArc does not contain any actual nih-plug parameters (ie.
+        // automatable params exposed to the host)
+        vec![]
+    }
+
+    /// This is called when it's time to save the plugin's state
+    fn serialize_fields(&self) -> BTreeMap<String, String> {
+        let mut map = BTreeMap::new();
+        match &*self.dsp_state.read().unwrap() {
+            DspState::Loaded(dsp) => dsp.write_zones(&mut map),
+            _ => {}
+        }
+        map
+    }
+
+    /// This is called when it's time to reload the plugin's state
+    fn deserialize_fields(&self, map: &BTreeMap<String, String>) {
+        // The DSP isn't loaded yet, thus we store the map for later, so it can
+        // be used by the Tasks::LoadDsp task started by initialize().
+        if !map.is_empty() {
+            *self.dsp_zones_to_restore.write().unwrap() = map.clone();
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SelectedPaths {
     dsp_script: Option<std::path::PathBuf>,
     dsp_lib_path: std::path::PathBuf,
-}
-
-pub struct NihFaustJit {
-    sample_rate: Arc<AtomicF32>,
-    params: Arc<NihFaustJitParams>,
-    dsp_state: Arc<RwLock<DspState>>,
 }
 
 #[derive(Params)]
@@ -40,15 +71,25 @@ struct NihFaustJitParams {
 
     #[persist = "dsp-nvoices"]
     dsp_nvoices: Arc<RwLock<i32>>,
+
+    #[nested]
+    dsp_state: DspStateArc,
+    // The SingletonDsp is stored inside the params so its internal state can be
+    // saved and restored
+}
+
+pub struct NihFaustJit {
+    sample_rate: Arc<AtomicF32>,
+    params: Arc<NihFaustJitParams>,
 }
 
 impl NihFaustJit {
-    /// Clone from the plugin the Arcs that the GUI thread will need
+    /// Clone from the plugin object the Arcs that the GUI thread will need
     pub(crate) fn editor_arcs(&self) -> editor::EditorArcs {
         editor::EditorArcs {
             nih_egui_state: Arc::clone(&self.params.nih_egui_state),
             selected_paths: Arc::clone(&self.params.selected_paths),
-            dsp_state: Arc::clone(&self.dsp_state),
+            dsp_state: Arc::clone(&self.params.dsp_state.dsp_state),
             dsp_nvoices: Arc::clone(&self.params.dsp_nvoices),
         }
     }
@@ -59,7 +100,6 @@ impl Default for NihFaustJit {
         Self {
             sample_rate: Arc::new(AtomicF32::new(0.0)),
             params: Arc::new(NihFaustJitParams::default()),
-            dsp_state: Arc::new(RwLock::new(DspState::NoDspScript)),
         }
     }
 }
@@ -78,31 +118,59 @@ impl Default for NihFaustJitParams {
             })),
 
             dsp_nvoices: Arc::new(RwLock::new(-1)),
+
+            dsp_state: DspStateArc {
+                dsp_state: Arc::new(RwLock::new(DspState::NoDsp)),
+                dsp_zones_to_restore: Arc::new(RwLock::new(BTreeMap::new())),
+            },
         }
     }
 }
 
 pub enum Tasks {
-    ReloadDsp,
+    LoadDsp { restore_zones: bool },
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, strum_macros::EnumIter)]
-pub enum DspType {
+pub enum DspLoadingMode {
     AutoDetect,
     Effect,
     Instrument,
 }
 
-impl DspType {
+impl DspLoadingMode {
     fn from_nvoices(nvoices: i32) -> Self {
         match nvoices {
-            -1 => DspType::AutoDetect,
-            0 => DspType::Effect,
+            -1 => DspLoadingMode::AutoDetect,
+            0 => DspLoadingMode::Effect,
             n => {
                 assert!(n > 0, "nvoices must be >= -1");
-                DspType::Instrument
+                DspLoadingMode::Instrument
             }
         }
+    }
+}
+
+fn validate_and_process_new_dsp(
+    dsp: faust_jit::SingletonDsp,
+    restore_zones: bool,
+    zones_to_restore_arc: &Arc<RwLock<BTreeMap<String, String>>>,
+) -> DspState {
+    if dsp.info.num_inputs > 2 || dsp.info.num_outputs > 2 {
+        DspState::Failed(format!(
+            "DSP has {} input and {} output channels. Max is 2 for each",
+            dsp.info.num_inputs, dsp.info.num_outputs
+        ))
+    } else if restore_zones {
+        match dsp.load_zones(&zones_to_restore_arc.read().unwrap()) {
+            Err(msg) => DspState::Failed(msg),
+            Ok(_) => DspState::Loaded(dsp),
+        }
+        // In the case when the restore was successful, we don't flush the
+        // zones_to_restore map, because the DSP loading may be retriggered
+        // right after and we'll need the map again (see initialize() doc)
+    } else {
+        DspState::Loaded(dsp)
     }
 }
 
@@ -147,34 +215,33 @@ impl Plugin for NihFaustJit {
 
         let selected_paths_arc = Arc::clone(&self.params.selected_paths);
         let dsp_nvoices_arc = Arc::clone(&self.params.dsp_nvoices);
-        let dsp_state_arc = Arc::clone(&self.dsp_state);
+        let dsp_state_arc = Arc::clone(&self.params.dsp_state.dsp_state);
+        let zones_to_restore_arc = Arc::clone(&self.params.dsp_state.dsp_zones_to_restore);
 
         Box::new(move |task| match task {
-            Tasks::ReloadDsp => {
+            Tasks::LoadDsp { restore_zones } => {
                 let sample_rate = sample_rate_arc.load(Ordering::Relaxed);
                 let selected_paths = selected_paths_arc.read().unwrap();
                 let dsp_nvoices = *dsp_nvoices_arc.read().unwrap();
-                let new_dsp_state = match &selected_paths.dsp_script {
-                    Some(script_path) => {
-                        match faust_jit::SingletonDsp::from_file(
-                            script_path.to_str().unwrap(),
-                            selected_paths.dsp_lib_path.to_str().unwrap(),
-                            sample_rate,
-                            dsp_nvoices,
-                        ) {
-                            Err(msg) => DspState::Failed(msg),
-                            Ok(dsp) => {
-                                if dsp.info.num_inputs <= 2 && dsp.info.num_outputs <= 2 {
-                                    DspState::Loaded(dsp)
-                                } else {
-                                    DspState::Failed(
-                                        format!("DSP has {} input and {} output channels. Max is 2 for each", dsp.info.num_inputs, dsp.info.num_outputs)
-                                    )
-                                }
+                let new_dsp_state = {
+                    match &selected_paths.dsp_script {
+                        None => DspState::NoDsp,
+                        Some(script_path) => {
+                            match faust_jit::SingletonDsp::from_file(
+                                script_path,
+                                &selected_paths.dsp_lib_path,
+                                sample_rate,
+                                dsp_nvoices,
+                            ) {
+                                Err(msg) => DspState::Failed(msg),
+                                Ok(dsp) => validate_and_process_new_dsp(
+                                    dsp,
+                                    restore_zones,
+                                    &zones_to_restore_arc,
+                                ),
                             }
                         }
                     }
-                    None => DspState::NoDspScript,
                 };
                 log!(
                     Level::Debug,
@@ -192,6 +259,9 @@ impl Plugin for NihFaustJit {
         })
     }
 
+    /// IMPORTANT: Depending on how the host restores plugin state, this
+    /// function may be called multiple times in rapid succession. See this
+    /// method's doc in the Plugin trait
     fn initialize(
         &mut self,
         _audio_io_layout: &AudioIOLayout,
@@ -203,7 +273,9 @@ impl Plugin for NihFaustJit {
         // function if you do not need it.
         self.sample_rate
             .store(buffer_config.sample_rate, Ordering::Relaxed);
-        init_ctx.execute(Tasks::ReloadDsp);
+        init_ctx.execute(Tasks::LoadDsp {
+            restore_zones: true,
+        });
         true
     }
 
@@ -226,7 +298,7 @@ impl Plugin for NihFaustJit {
         _aux: &mut AuxiliaryBuffers,
         process_ctx: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
-        if let DspState::Loaded(dsp) = &*self.dsp_state.read().unwrap() {
+        if let DspState::Loaded(dsp) = &*self.params.dsp_state.dsp_state.read().unwrap() {
             // Handling MIDI events:
             while let Some(midi_event) = process_ctx.next_event() {
                 let time = midi_event.timing() as f64;

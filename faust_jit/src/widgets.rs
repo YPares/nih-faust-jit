@@ -1,6 +1,6 @@
 use super::wrapper::*;
 use std::{
-    collections::VecDeque,
+    collections::{BTreeMap, VecDeque},
     ffi::{c_char, c_void, CStr},
     hash::{Hash, Hasher},
 };
@@ -119,25 +119,113 @@ impl<Z> DspWidget<Z> {
     }
 }
 
-pub struct DspWidgetsBuilder {
-    widget_decls: VecDeque<(String, WWidgetDecl)>,
+/// A memory zone corresponding to some parameter's current value. The name
+/// "zone" comes from Faust
+pub trait ParamZone {
+    unsafe fn from_ptr(ptr: *mut f32) -> Self;
+    fn get(&self) -> f32;
+    fn set(&mut self, x: f32);
 }
 
-/// A memory zone corresponding to some parameter's current value
-pub trait Zone {
-    unsafe fn from_zone_ptr(ptr: *mut f32) -> Self;
-    
-    fn cur_value(&self) -> f32;
-}
-
-impl<'a> Zone for &'a mut f32 {
-    unsafe fn from_zone_ptr(ptr: *mut f32) -> Self {
+impl<'a> ParamZone for &'a mut f32 {
+    unsafe fn from_ptr(ptr: *mut f32) -> Self {
         ptr.as_mut().unwrap()
     }
 
-    fn cur_value(&self) -> f32 {
+    fn get(&self) -> f32 {
         **self
     }
+
+    fn set(&mut self, x: f32) {
+        **self = x;
+    }
+}
+
+fn write_widgets_zones_rec<Z: ParamZone>(
+    path_vec: &mut Vec<String>,
+    widgets: &[DspWidget<Z>],
+    map: &mut BTreeMap<String, String>,
+) {
+    for w in widgets {
+        path_vec.push(w.label().to_owned());
+        match w {
+            DspWidget::Box { inner, .. } => {
+                write_widgets_zones_rec(path_vec, inner, map);
+            }
+            DspWidget::Button { zone, .. }
+            | DspWidget::Numeric { zone, .. }
+            | DspWidget::Bargraph { zone, .. } => {
+                let cur_path = path_vec.join("/");
+                map.insert(cur_path, zone.get().to_string());
+            }
+        }
+        path_vec.pop();
+    }
+}
+
+/// Serialize the current values of the widgets' zones into a map
+pub fn write_widgets_zones<Z: ParamZone>(
+    widgets: &[DspWidget<Z>],
+    map: &mut BTreeMap<String, String>,
+) {
+    write_widgets_zones_rec(&mut Vec::new(), widgets, map);
+}
+
+fn load_widgets_zones_rec<Z: ParamZone>(
+    path_vec: &mut Vec<String>,
+    widgets: &mut [DspWidget<Z>],
+    map: &BTreeMap<String, String>,
+    missing: &mut Vec<String>,
+    failed_to_parse: &mut Vec<String>,
+) {
+    for w in widgets {
+        path_vec.push(w.label().to_owned());
+        match w {
+            DspWidget::Box { inner, .. } => {
+                load_widgets_zones_rec(path_vec, inner, map, missing, failed_to_parse);
+            }
+            DspWidget::Button { zone, .. }
+            | DspWidget::Numeric { zone, .. }
+            | DspWidget::Bargraph { zone, .. } => {
+                let cur_path = path_vec.join("/");
+                match map.get(&cur_path) {
+                    None => missing.push(cur_path),
+                    Some(val_str) => match val_str.parse() {
+                        Ok(val) => zone.set(val),
+                        Err(_) => failed_to_parse.push(cur_path),
+                    },
+                }
+            }
+        }
+        path_vec.pop();
+    }
+}
+
+/// Override the current values of the widgets' zones from a map
+pub fn load_widgets_zone<Z: ParamZone>(
+    widgets: &mut [DspWidget<Z>],
+    map: &BTreeMap<String, String>,
+) -> Result<(), String> {
+    let mut missing = Vec::new();
+    let mut failed_to_parse = Vec::new();
+    load_widgets_zones_rec(
+        &mut Vec::new(),
+        widgets,
+        map,
+        &mut missing,
+        &mut failed_to_parse,
+    );
+    if missing.is_empty() && failed_to_parse.is_empty() {
+        Ok(())
+    } else {
+        Err(
+            format!("Stored state is invalid:\n  - Missing paths: {:?}\n  - Paths that failed to parse: {:?}", missing, failed_to_parse)
+        )
+    }
+}
+
+pub struct DspWidgetsBuilder {
+    widget_decls: VecDeque<(String, WWidgetDecl)>,
 }
 
 impl DspWidgetsBuilder {
@@ -147,7 +235,7 @@ impl DspWidgetsBuilder {
         }
     }
 
-    pub fn build_widgets<Z: Zone>(mut self, widget_list: &mut Vec<DspWidget<Z>>) {
+    pub fn build_widgets<Z: ParamZone>(mut self, widget_list: &mut Vec<DspWidget<Z>>) {
         self.build_widgets_rec(widget_list);
         assert!(
             self.widget_decls.is_empty(),
@@ -157,7 +245,7 @@ impl DspWidgetsBuilder {
 
     /// To be called _after_ faust's buildUserInterface has finished, ie. after
     /// w_createUIs has finished. 'a is the lifetime of the DSP itself
-    fn build_widgets_rec<Z: Zone>(&mut self, cur_level: &mut Vec<DspWidget<Z>>) {
+    fn build_widgets_rec<Z: ParamZone>(&mut self, cur_level: &mut Vec<DspWidget<Z>>) {
         use WWidgetDeclType as W;
         while let Some((label, decl)) = self.widget_decls.pop_front() {
             let mut widget = match decl.typ {
@@ -170,12 +258,12 @@ impl DspWidgetsBuilder {
                 W::BUTTON | W::CHECK_BUTTON => DspWidget::Button {
                     layout: ButtonLayout::from_decl_type(decl.typ),
                     label,
-                    zone: unsafe { Zone::from_zone_ptr(decl.zone) },
+                    zone: unsafe { ParamZone::from_ptr(decl.zone) },
                 },
                 W::HORIZONTAL_SLIDER | W::VERTICAL_SLIDER | W::NUM_ENTRY => DspWidget::Numeric {
                     layout: NumericLayout::from_decl_type(decl.typ),
                     label,
-                    zone: unsafe { Zone::from_zone_ptr(decl.zone) },
+                    zone: unsafe { ParamZone::from_ptr(decl.zone) },
                     init: decl.init,
                     min: decl.min,
                     max: decl.max,
@@ -184,7 +272,7 @@ impl DspWidgetsBuilder {
                 W::HORIZONTAL_BARGRAPH | W::VERTICAL_BARGRAPH => DspWidget::Bargraph {
                     layout: BargraphLayout::from_decl_type(decl.typ),
                     label,
-                    zone: unsafe { Zone::from_zone_ptr(decl.zone) },
+                    zone: unsafe { ParamZone::from_ptr(decl.zone) },
                     min: decl.min,
                     max: decl.max,
                 },
