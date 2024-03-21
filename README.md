@@ -1,8 +1,9 @@
 # nih-faust-jit
 
-A plugin to load Faust dsp files and JIT-compile them with LLVM. The selected
-DSP script is saved as part of the plugin state and therefore is saved with your
-DAW project. A two-part GUI is provided:
+A plugin to load Faust dsp files and JIT-compile them with LLVM. Limited to
+stereo audio (DSP scripts with more than 2 input/ouput chans will be refused).
+The selected DSP script is saved as part of the plugin state and therefore is
+saved with your DAW project. A two-part GUI is provided:
 
 - Select which script to load and where to look for the Faust libraries that
 this script may import
@@ -79,3 +80,23 @@ cargo run --release
   They will return to the default value they have in the script when the
   plugin is reloaded.
 - Metadata (units, style, etc) for widgets are not taken into account so far.
+
+## Crates
+
+The main crate containing the plugin is `nih_faust_jit`. Parts of its logic are
+exposed as lower-level crates, that could be reused in other projects:
+
+**`faust_jit`** defines the `SingletonDsp` type. It wraps the part of the
+`libfaust` API that is needed to:
+
+- load an effect or mono/poly instrument DSP from a file (via JIT compilation
+  with llvm),
+- process audio buffers with it,
+- extract the information necessary to build a GUI that can alter the DSP's
+  internal parameters (represented with the `DspWidget` type).
+  
+`faust_jit` is related to [rust-faust](https://github.com/Frando/rust-faust),
+but `rust-faust` deals only with static compilation of DSP scripts to Rust code.
+The `faust_jit` crate is not limited to stereo DSP scripts (only the plugin is).
+
+**`faust_jit_egui`** draws an `egui` GUI for a `SingletonDsp`.
