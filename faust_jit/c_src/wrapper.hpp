@@ -4,10 +4,10 @@
 // faust types we need, instead of including the faust headers directly.
 
 struct llvm_dsp_poly_factory;
-struct dsp_poly;
+struct timed_dsp;
 
 typedef llvm_dsp_poly_factory WFactory;
-typedef dsp_poly WDsp;
+typedef timed_dsp WDsp;
 
 WFactory *w_createDSPFactoryFromFile(const char *filepath, const char *dsp_libs_path, char *err_msg_c);
 
@@ -32,13 +32,13 @@ void w_deleteDSPFactory(WFactory *factory);
 //
 WDsp *w_createDSPInstance(WFactory *factory, int sample_rate, int nvoices, bool group_voices);
 
-struct WDspInfo
+struct DspInfo
 {
     int num_inputs;
     int num_outputs;
 };
 
-WDspInfo w_getDSPInfo(WDsp *dsp);
+DspInfo w_getDSPInfo(WDsp *dsp);
 
 void w_computeBuffer(WDsp *dsp, int count, float **buf);
 
@@ -79,4 +79,17 @@ WUIs *w_createUIs(WDsp *dsp, WWidgetDeclCallback callback, void *gui_builder);
 
 void w_deleteUIs(WUIs *h);
 
-void w_handleMidiEvent(WUIs *h, double time, const unsigned char bytes[3]);
+void w_updateAllGuis();
+
+void w_handleRawMidi(WUIs *h, double time, const unsigned char bytes[3]);
+
+// Taken from Faust
+enum WMidiSyncMsg
+{
+    MIDI_CLOCK = 0xF8,
+    MIDI_START = 0xFA,
+    MIDI_CONT = 0xFB,
+    MIDI_STOP = 0xFC,
+};
+
+void w_handleMidiSync(WUIs *h, double time, WMidiSyncMsg status);

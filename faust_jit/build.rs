@@ -30,6 +30,7 @@ fn main() {
         // Tell cargo to invalidate the built crate whenever any of the
         // included header files changed.
         .rustified_enum("WWidgetDeclType")
+        .rustified_enum("WMidiSyncMsg")
         .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
         // Finish the builder and generate the bindings.
         .generate()

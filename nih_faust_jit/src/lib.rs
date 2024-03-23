@@ -227,18 +227,31 @@ impl Plugin for NihFaustJit {
         process_ctx: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
         if let DspState::Loaded(dsp) = &*self.dsp_state.read().unwrap() {
+            // Handling transport & clock:
+            let tp = process_ctx.transport();
+            let opt_clock_data = match (tp.tempo, tp.pos_samples()) {
+                (Some(tempo), Some(next_buffer_sample_position)) => Some(faust_jit::ClockData {
+                    tempo,
+                    next_buffer_size: buffer.samples(),
+                    next_buffer_sample_position,
+                }),
+                _ => None,
+            };
+            dsp.handle_midi_sync(tp.playing, &opt_clock_data);
+
             // Handling MIDI events:
             while let Some(midi_event) = process_ctx.next_event() {
                 let time = midi_event.timing() as f64;
                 match midi_event.as_midi() {
                     None | Some(MidiResult::SysEx(_, _)) => { /* We ignore SysEx messages */ }
-                    Some(MidiResult::Basic(bytes)) => dsp.handle_midi_event(time, bytes),
+                    Some(MidiResult::Basic(bytes)) => dsp.handle_raw_midi(time, bytes),
                 }
             }
 
+            // Processing audio buffers:
             dsp.process_buffers(buffer.as_slice());
         }
-
+        // Applying Gain parameter:
         for channel_samples in buffer.iter_samples() {
             let gain = self.params.gain.smoothed.next();
 
@@ -246,7 +259,6 @@ impl Plugin for NihFaustJit {
                 *sample *= gain;
             }
         }
-
         ProcessStatus::Normal
     }
 }
