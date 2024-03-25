@@ -5,13 +5,15 @@ use std::{
     path::Path,
     ptr::null_mut,
     sync::{
-        atomic::{AtomicPtr, Ordering},
+        atomic::{AtomicBool, AtomicPtr, Ordering},
         Mutex, RwLock,
     },
 };
 
 use widgets::*;
 use wrapper::*;
+
+pub use wrapper::DspInfo;
 
 pub mod widgets;
 mod wrapper;
@@ -38,6 +40,8 @@ impl std::fmt::Debug for ChanPtrs {
 #[derive(Debug)]
 /// RAII interface to faust DSP factories and instances
 pub struct SingletonDsp {
+    sample_rate: f32,
+    transport_already_playing: AtomicBool,
     factory: AtomicPtr<WFactory>,
     /// The DSP instance is mutex-protected, as we don't want its compute
     /// function being called by two threads at the same time
@@ -50,7 +54,7 @@ pub struct SingletonDsp {
     widgets: RwLock<Vec<DspWidget<&'static mut f32>>>,
     chan_ptrs: ChanPtrs,
     /// Tells how many input & output audio channels this DSP expects
-    pub info: WDspInfo,
+    pub info: DspInfo,
 }
 // AtomicPtr is used above only to make the pointers (and thus the whole type)
 // Sync. The pointers themselves will never be mutated.
@@ -74,6 +78,16 @@ impl Drop for SingletonDsp {
     }
 }
 
+/// Data needed to generate a MIDI clock for the DSP
+pub struct ClockData {
+    /// The tempo (as given by the host)
+    pub tempo: f64,
+    /// The buffer size
+    pub next_buffer_size: usize,
+    /// Where we are in the track (expressed in samples)
+    pub next_buffer_sample_position: i64,
+}
+
 impl SingletonDsp {
     /// Load a faust .dsp file and initialize the DSP
     ///
@@ -86,6 +100,8 @@ impl SingletonDsp {
         nvoices: i32,
     ) -> Result<Self, String> {
         let mut this = Self {
+            sample_rate,
+            transport_already_playing: AtomicBool::new(false),
             factory: AtomicPtr::new(null_mut()),
             instance: Mutex::new(AtomicPtr::new(null_mut())),
             uis: AtomicPtr::new(null_mut()),
@@ -93,7 +109,7 @@ impl SingletonDsp {
             chan_ptrs: ChanPtrs {
                 vec: RefCell::new(vec![]),
             },
-            info: WDspInfo {
+            info: DspInfo {
                 num_inputs: 0,
                 num_outputs: 0,
             },
@@ -164,16 +180,51 @@ impl SingletonDsp {
     }
 
     /// To be called for each midi event for the current audio buffer
-    pub fn handle_midi_event(&self, timestamp: f64, midi_data: [u8; 3]) {
+    pub fn handle_raw_midi(&self, timestamp: f64, midi_data: [u8; 3]) {
         let uis = self.uis.load(Ordering::Relaxed);
         unsafe {
-            w_handleMidiEvent(uis, timestamp, midi_data.as_ptr());
+            w_handleRawMidi(uis, timestamp, midi_data.as_ptr());
+        }
+    }
+
+    /// Send MIDI clock and play/stop messages to the DSP
+    pub fn handle_midi_sync(&self, playing: bool, opt_clock_data: &Option<ClockData>) {
+        let already_playing = self.transport_already_playing.load(Ordering::Relaxed);
+        let uis = self.uis.load(Ordering::Relaxed);
+        if playing {
+            if !already_playing {
+                unsafe { w_handleMidiSync(uis, 0.0, WMidiSyncMsg::MIDI_START) };
+                self.transport_already_playing
+                    .store(true, Ordering::Relaxed);
+            }
+
+            // We generate and send to the DSP a 24 PPQN clock:
+            if let Some(clock_data) = opt_clock_data {
+                let samples_per_beat = (self.sample_rate as f64) * 60.0 / clock_data.tempo;
+                let samples_per_pulse = (samples_per_beat / 24.0) as i64;
+
+                // next_pulse_pos is in buffer coordinates (ie. 0 is the first sample of
+                // the current buffer)
+                let rem = clock_data.next_buffer_sample_position % samples_per_pulse;
+                let mut next_pulse_pos = if rem == 0 { 0 } else { samples_per_pulse - rem };
+                while next_pulse_pos < clock_data.next_buffer_size as i64 {
+                    unsafe {
+                        w_handleMidiSync(uis, next_pulse_pos as f64, WMidiSyncMsg::MIDI_CLOCK)
+                    };
+                    next_pulse_pos += samples_per_pulse;
+                }
+            }
+        } else {
+            if already_playing {
+                unsafe { w_handleMidiSync(uis, 0.0, WMidiSyncMsg::MIDI_STOP) };
+                self.transport_already_playing
+                    .store(false, Ordering::Relaxed);
+            }
         }
     }
 
     /// Modifies _in place_ the given channels. Should be called _after_ all
-    /// MIDI events for the current audio buffer have been given to
-    /// handle_midi_event.
+    /// MIDI events for the current audio buffer have been handled.
     ///
     /// If another thread is already calling process_buffers, this will wait
     /// until it terminates.
@@ -185,6 +236,8 @@ impl SingletonDsp {
     ///     ignored (ie. will stay untouched)
     ///   - if audio_bufs contains LESS channels, this function will panic
     pub fn process_buffers(&self, audio_bufs: &mut [&mut [f32]]) {
+        unsafe { w_updateAllGuis() };
+
         // First thing to do is to lock the DSP:
         let dsp = self.instance.lock().unwrap();
         let mut ptr_vec = self.chan_ptrs.vec.borrow_mut();
