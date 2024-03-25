@@ -86,7 +86,7 @@ cargo run --release
 ## Faust features not yet supported
 
 - Soundfiles
-- Metadata (units, style, etc) for widgets
+- Metadata (units, style, hidden, etc) for widgets
 
 ## Crates
 

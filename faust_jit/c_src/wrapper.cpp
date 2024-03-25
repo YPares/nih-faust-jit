@@ -8,6 +8,8 @@
 #include <iostream>
 #include <faust/dsp/poly-llvm-dsp.h>
 
+#include <faust/dsp/timed-dsp.h>
+
 #include <faust/midi/midi.h>
 #include <faust/gui/MidiUI.h>
 
@@ -56,12 +58,14 @@ WDsp *w_createDSPInstance(WFactory *factory, int sample_rate, int nvoices, bool 
         midiControlledVoices = false;
     }
 
-    WDsp *dsp = factory->createPolyDSPInstance(nvoices, midiControlledVoices, group_voices);
+    // timed_dsp is needed for sample-accurate control (such as for MIDI clock).
+    // See https://faustdoc.grame.fr/manual/architectures/#sample-accurate-control
+    WDsp *dsp = new timed_dsp(factory->createPolyDSPInstance(nvoices, midiControlledVoices, group_voices));
     dsp->init(sample_rate);
     return dsp;
 }
 
-WDspInfo w_getDSPInfo(WDsp *dsp)
+DspInfo w_getDSPInfo(WDsp *dsp)
 {
     return {dsp->getNumInputs(), dsp->getNumOutputs()};
 }
@@ -187,7 +191,12 @@ void w_deleteUIs(WUIs *uis)
     delete uis;
 }
 
-void w_handleMidiEvent(WUIs *uis, double time, const unsigned char bytes[3])
+void w_updateAllGuis()
+{
+    GUI::updateAllGuis();
+}
+
+void w_handleRawMidi(WUIs *uis, double time, const unsigned char bytes[3])
 {
     // Faust expects status (type) bits _not_ to be shifted, so
     // we leave status bits in place and just set the other ones
@@ -195,10 +204,16 @@ void w_handleMidiEvent(WUIs *uis, double time, const unsigned char bytes[3])
     uint8_t type = bytes[0] & 0b11110000;
     uint8_t channel = bytes[0] & 0b00001111;
 
-    if (type == midi::MIDI_PROGRAM_CHANGE || type == midi::MIDI_AFTERTOUCH)
+    if (type == midi::MIDI_CLOCK || type == midi::MIDI_START ||
+        type == midi::MIDI_CONT || type == midi::MIDI_STOP)
+        uis->fMidiHandler->handleSync(time, type);
+    else if (type == midi::MIDI_PROGRAM_CHANGE || type == midi::MIDI_AFTERTOUCH)
         uis->fMidiHandler->handleData1(time, type, channel, bytes[1]);
     else
         uis->fMidiHandler->handleData2(time, type, channel, bytes[1], bytes[2]);
+}
 
-    GUI::updateAllGuis();
+void w_handleMidiSync(WUIs *uis, double time, WMidiSyncMsg status)
+{
+    uis->fMidiHandler->handleSync(time, status);
 }
