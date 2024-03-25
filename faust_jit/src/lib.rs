@@ -1,6 +1,8 @@
 use std::{
     cell::RefCell,
+    collections::BTreeMap,
     ffi::{c_void, CStr, CString},
+    path::Path,
     ptr::null_mut,
     sync::{
         atomic::{AtomicBool, AtomicPtr, Ordering},
@@ -92,8 +94,8 @@ impl SingletonDsp {
     /// nvoices controls both the amount of voices and the type of DSP that will
     /// be loaded. See w_createDSPInstance for more info.
     pub fn from_file(
-        script_path: &str,
-        dsp_libs_path: &str,
+        script_path: &Path,
+        dsp_libs_path: &Path,
         sample_rate: f32,
         nvoices: i32,
     ) -> Result<Self, String> {
@@ -112,8 +114,10 @@ impl SingletonDsp {
                 num_outputs: 0,
             },
         };
-        let [script_path_c, dsp_libs_path_c] = [script_path, dsp_libs_path]
-            .map(|s| CString::new(s).expect(&format!("{} failed to convert to CString", s)));
+        let [script_path_c, dsp_libs_path_c] = [script_path, dsp_libs_path].map(|path| {
+            let path_str = path.to_str().unwrap();
+            CString::new(path_str).expect(&format!("{} failed to convert to CString", path_str))
+        });
         let mut error_msg_buf = [0; 4096];
         let fac_ptr = unsafe {
             w_createDSPFactoryFromFile(
@@ -150,16 +154,29 @@ impl SingletonDsp {
         }
     }
 
-    /// If another thread is calling with_mut_widgets, this will wait until it
-    /// terminates
+    /// Access this DSP's widgets. If another thread is currently calling
+    /// with_widgets_mut, this will wait until it terminates
     pub fn with_widgets<T>(&self, f: impl FnOnce(&[DspWidget<&mut f32>]) -> T) -> T {
         f(&*self.widgets.read().unwrap())
     }
 
-    /// If another thread is already calling with_mut_widgets, this will wait
-    /// until it terminates
+    /// Mutably access this DSP's widgets. If another thread is already calling
+    /// this function, this will wait until it terminates
     pub fn with_widgets_mut<T>(&self, f: impl FnOnce(&mut [DspWidget<&mut f32>]) -> T) -> T {
         f(&mut *self.widgets.write().unwrap())
+    }
+
+    /// Save the internal parameters' state into a map
+    pub fn write_zones(&self, map: &mut BTreeMap<String, String>) {
+        self.with_widgets(|widgets| write_widgets_zones(widgets, map))
+    }
+
+    /// Load the internal parameters' state from a map
+    pub fn load_zones(
+        &self,
+        map: &BTreeMap<String, String>,
+    ) -> Result<(), String> {
+        self.with_widgets_mut(|widgets| load_widgets_zone(widgets, map))
     }
 
     /// To be called for each midi event for the current audio buffer
@@ -212,8 +229,8 @@ impl SingletonDsp {
     /// If another thread is already calling process_buffers, this will wait
     /// until it terminates.
     ///
-    /// The number of expected channels is max(self.info.num_inputs,
-    /// self.info.num_outputs):
+    /// The number of expected channels is `max(self.info.num_inputs,
+    /// self.info.num_outputs)`:
     ///
     ///   - if audio_bufs contains MORE channels, the excess channels will be
     ///     ignored (ie. will stay untouched)
