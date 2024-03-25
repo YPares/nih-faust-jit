@@ -71,29 +71,37 @@ fn faust_widgets_ui_rec(ui: &mut egui::Ui, widgets: &mut [DspWidget<&mut f32>], 
                 label,
                 zone,
                 hidden: false,
-                tooltip: _,
-            } => match layout {
-                ButtonLayout::Held => {
-                    let mut button = egui::Button::new(&*label).sense(Sense::drag());
-                    if **zone != 0.0 {
-                        // If the gate is currently on:
-                        button = button.fill(egui::Color32::from_rgb(115, 115, 50));
+                tooltip,
+            } => {
+                let resp = match layout {
+                    ButtonLayout::Held => {
+                        let mut button =
+                            egui::Button::new(&*label).sense(Sense::drag().union(Sense::hover()));
+                        if **zone != 0.0 {
+                            // If the gate is currently on:
+                            button = button.fill(egui::Color32::from_rgb(115, 115, 50));
+                        }
+                        let resp = ui.add(button);
+                        if resp.drag_started() {
+                            // If the button just started to be held:
+                            **zone = 1.0;
+                        } else if resp.drag_released() {
+                            // If the button was just released:
+                            **zone = 0.0;
+                        }
+                        resp
                     }
-                    let rsp = ui.add(button);
-                    if rsp.drag_started() {
-                        // If the button just started to be held:
-                        **zone = 1.0;
-                    } else if rsp.drag_released() {
-                        // If the button was just released:
-                        **zone = 0.0;
+                    ButtonLayout::Checkbox => {
+                        let mut selected = **zone != 0.0;
+                        let resp = ui.checkbox(&mut selected, &*label).interact(Sense::hover());
+                        **zone = selected as i32 as f32;
+                        resp
                     }
+                };
+                if let Some(txt) = tooltip {
+                    resp.on_hover_text(txt.to_owned());
                 }
-                ButtonLayout::Checkbox => {
-                    let mut selected = **zone != 0.0;
-                    ui.checkbox(&mut selected, &*label);
-                    **zone = selected as i32 as f32;
-                }
-            },
+            }
             DspWidget::NumParam {
                 layout,
                 style: _,
@@ -105,37 +113,42 @@ fn faust_widgets_ui_rec(ui: &mut egui::Ui, widgets: &mut [DspWidget<&mut f32>], 
                 init,
                 metadata:
                     Metadata {
-                        unit: _,
+                        unit,
                         scale: _,
                         hidden: false,
                         tooltip,
                     },
             } => {
                 let rng = std::ops::RangeInclusive::new(*min, *max);
+                let unit_txt = unit.as_deref().unwrap_or("");
                 ui.vertical(|ui| {
                     if !label.is_empty() {
                         let resp = ui
                             .label(&*label)
                             .interact(Sense::click().union(Sense::hover()));
-                        let resp = match &tooltip {
-                            Some(txt) => resp.on_hover_text(txt.clone()),
-                            _ => resp,
-                        };
                         if resp.double_clicked() {
                             **zone = *init;
                         }
+                        if let Some(txt) = tooltip {
+                            resp.on_hover_text(txt.to_owned());
+                        }
                     }
                     match layout {
-                        NumParamLayout::NumEntry => {
-                            ui.add(egui::DragValue::new(*zone).clamp_range(rng))
-                        }
-                        NumParamLayout::HorizontalSlider => {
-                            ui.add(egui::Slider::new(*zone, rng).step_by(*step as f64))
-                        }
+                        NumParamLayout::NumEntry => ui.add(
+                            egui::DragValue::new(*zone)
+                                .clamp_range(rng)
+                                .suffix(unit_txt),
+                        ),
+                        NumParamLayout::HorizontalSlider => ui.add(
+                            egui::Slider::new(*zone, rng)
+                                .step_by(*step as f64)
+                                .suffix(unit_txt),
+                        ),
                         NumParamLayout::VerticalSlider => ui.add(
                             egui::Slider::new(*zone, rng)
                                 .step_by(*step as f64)
-                                .vertical(),
+                                .vertical()
+                                .suffix(unit_txt),
                         ),
                     };
                 });
@@ -149,18 +162,23 @@ fn faust_widgets_ui_rec(ui: &mut egui::Ui, widgets: &mut [DspWidget<&mut f32>], 
                 max,
                 metadata:
                     Metadata {
-                        unit: _,
+                        unit,
                         scale: _,
                         hidden: false,
-                        tooltip: _,
+                        tooltip,
                     },
             } => {
                 let cur_val = **zone;
                 let t = (cur_val - *min) / (*max - *min);
+                let unit_txt = unit.as_deref().unwrap_or("");
 
                 ui.vertical(|ui| {
                     let label_width = if !label.is_empty() {
-                        let resp = ui.label(&*label);
+                        let resp = ui.label(&*label).interact(Sense::hover());
+                        let resp = match tooltip {
+                            Some(txt) => resp.on_hover_text(txt.to_owned()),
+                            None => resp,
+                        };
                         resp.rect.max.x - resp.rect.min.x
                     } else {
                         30.0
@@ -169,8 +187,8 @@ fn faust_widgets_ui_rec(ui: &mut egui::Ui, widgets: &mut [DspWidget<&mut f32>], 
                         NumDisplayLayout::Horizontal => {
                             ui.horizontal(|ui| {
                                 ui.label(format!("{:.2}", min));
-                                draw_bargraph(ui, t, cur_val, layout);
-                                ui.label(format!("{:.2}", max));
+                                draw_bargraph(ui, t, cur_val, unit_txt, layout);
+                                ui.label(format!("{:.2}{}", max, unit_txt));
                             });
                         }
                         NumDisplayLayout::Vertical => {
@@ -178,8 +196,8 @@ fn faust_widgets_ui_rec(ui: &mut egui::Ui, widgets: &mut [DspWidget<&mut f32>], 
                                 egui::vec2(label_width, 100.0),
                                 Layout::top_down(Align::Center),
                                 |ui| {
-                                    ui.label(format!("{:.2}", max));
-                                    draw_bargraph(ui, t, cur_val, layout);
+                                    ui.label(format!("{:.2}{}", max, unit_txt));
+                                    draw_bargraph(ui, t, cur_val, unit_txt, layout);
                                     ui.label(format!("{:.2}", min));
                                 },
                             );
@@ -192,7 +210,13 @@ fn faust_widgets_ui_rec(ui: &mut egui::Ui, widgets: &mut [DspWidget<&mut f32>], 
     }
 }
 
-fn draw_bargraph(ui: &mut egui::Ui, mut t: f32, cur_val: f32, layout: &NumDisplayLayout) {
+fn draw_bargraph(
+    ui: &mut egui::Ui,
+    mut t: f32,
+    cur_val: f32,
+    unit: &str,
+    layout: &NumDisplayLayout,
+) {
     let min_color = egui::Color32::DARK_GREEN;
     let max_color = egui::Color32::YELLOW;
 
@@ -242,7 +266,7 @@ fn draw_bargraph(ui: &mut egui::Ui, mut t: f32, cur_val: f32, layout: &NumDispla
         },
     );
 
-    rsp.on_hover_text(format!("{}", cur_val));
+    rsp.on_hover_text(format!("{}{}", cur_val, unit));
 }
 
 fn lerp_colors(min: egui::Color32, max: egui::Color32, t: f32) -> egui::Color32 {
