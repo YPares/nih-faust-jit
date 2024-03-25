@@ -1,3 +1,4 @@
+use egui::{Align, Layout, Sense};
 use faust_jit::widgets::*;
 
 fn hgroup_header_icon(ui: &mut egui::Ui, openness: f32, response: &egui::Response) {
@@ -48,8 +49,8 @@ fn faust_widgets_ui_rec(ui: &mut egui::Ui, widgets: &mut [DspWidget<&mut f32>], 
                 inner,
             } => {
                 let egui_layout = match layout {
-                    BoxLayout::Horizontal => egui::Layout::left_to_right(egui::Align::Min),
-                    BoxLayout::Vertical => egui::Layout::top_down(egui::Align::Min),
+                    BoxLayout::Horizontal => Layout::left_to_right(Align::Min),
+                    BoxLayout::Vertical => Layout::top_down(Align::Min),
                     _ => panic!("Cannot be Tab here"),
                 };
                 let mut draw_inner = |ui: &mut egui::Ui| {
@@ -69,9 +70,11 @@ fn faust_widgets_ui_rec(ui: &mut egui::Ui, widgets: &mut [DspWidget<&mut f32>], 
                 layout,
                 label,
                 zone,
+                hidden: false,
+                tooltip: _,
             } => match layout {
                 ButtonLayout::Held => {
-                    let mut button = egui::Button::new(&*label).sense(egui::Sense::drag());
+                    let mut button = egui::Button::new(&*label).sense(Sense::drag());
                     if **zone != 0.0 {
                         // If the gate is currently on:
                         button = button.fill(egui::Color32::from_rgb(115, 115, 50));
@@ -91,34 +94,45 @@ fn faust_widgets_ui_rec(ui: &mut egui::Ui, widgets: &mut [DspWidget<&mut f32>], 
                     **zone = selected as i32 as f32;
                 }
             },
-            DspWidget::Numeric {
+            DspWidget::NumParam {
                 layout,
+                style: _,
                 label,
                 zone,
                 min,
                 max,
                 step,
                 init,
+                metadata:
+                    Metadata {
+                        unit: _,
+                        scale: _,
+                        hidden: false,
+                        tooltip,
+                    },
             } => {
                 let rng = std::ops::RangeInclusive::new(*min, *max);
                 ui.vertical(|ui| {
                     if !label.is_empty() {
-                        if ui
+                        let resp = ui
                             .label(&*label)
-                            .interact(egui::Sense::click())
-                            .double_clicked()
-                        {
+                            .interact(Sense::click().union(Sense::hover()));
+                        let resp = match &tooltip {
+                            Some(txt) => resp.on_hover_text(txt.clone()),
+                            _ => resp,
+                        };
+                        if resp.double_clicked() {
                             **zone = *init;
                         }
                     }
                     match layout {
-                        NumericLayout::NumEntry => {
+                        NumParamLayout::NumEntry => {
                             ui.add(egui::DragValue::new(*zone).clamp_range(rng))
                         }
-                        NumericLayout::HorizontalSlider => {
+                        NumParamLayout::HorizontalSlider => {
                             ui.add(egui::Slider::new(*zone, rng).step_by(*step as f64))
                         }
-                        NumericLayout::VerticalSlider => ui.add(
+                        NumParamLayout::VerticalSlider => ui.add(
                             egui::Slider::new(*zone, rng)
                                 .step_by(*step as f64)
                                 .vertical(),
@@ -126,12 +140,20 @@ fn faust_widgets_ui_rec(ui: &mut egui::Ui, widgets: &mut [DspWidget<&mut f32>], 
                     };
                 });
             }
-            DspWidget::Bargraph {
+            DspWidget::NumDisplay {
                 layout,
+                style: _,
                 label,
                 zone,
                 min,
                 max,
+                metadata:
+                    Metadata {
+                        unit: _,
+                        scale: _,
+                        hidden: false,
+                        tooltip: _,
+                    },
             } => {
                 let cur_val = **zone;
                 let t = (cur_val - *min) / (*max - *min);
@@ -144,17 +166,17 @@ fn faust_widgets_ui_rec(ui: &mut egui::Ui, widgets: &mut [DspWidget<&mut f32>], 
                         30.0
                     };
                     match layout {
-                        BargraphLayout::Horizontal => {
+                        NumDisplayLayout::Horizontal => {
                             ui.horizontal(|ui| {
                                 ui.label(format!("{:.2}", min));
                                 draw_bargraph(ui, t, cur_val, layout);
                                 ui.label(format!("{:.2}", max));
                             });
                         }
-                        BargraphLayout::Vertical => {
+                        NumDisplayLayout::Vertical => {
                             ui.allocate_ui_with_layout(
                                 egui::vec2(label_width, 100.0),
-                                egui::Layout::top_down(egui::Align::Center),
+                                Layout::top_down(Align::Center),
                                 |ui| {
                                     ui.label(format!("{:.2}", max));
                                     draw_bargraph(ui, t, cur_val, layout);
@@ -165,11 +187,12 @@ fn faust_widgets_ui_rec(ui: &mut egui::Ui, widgets: &mut [DspWidget<&mut f32>], 
                     };
                 });
             }
+            _ => {}
         }
     }
 }
 
-fn draw_bargraph(ui: &mut egui::Ui, mut t: f32, cur_val: f32, layout: &BargraphLayout) {
+fn draw_bargraph(ui: &mut egui::Ui, mut t: f32, cur_val: f32, layout: &NumDisplayLayout) {
     let min_color = egui::Color32::DARK_GREEN;
     let max_color = egui::Color32::YELLOW;
 
@@ -184,18 +207,18 @@ fn draw_bargraph(ui: &mut egui::Ui, mut t: f32, cur_val: f32, layout: &BargraphL
     };
 
     let max_size = match layout {
-        BargraphLayout::Horizontal => egui::vec2(80.0, 20.0),
-        BargraphLayout::Vertical => egui::vec2(20.0, 80.0),
+        NumDisplayLayout::Horizontal => egui::vec2(80.0, 20.0),
+        NumDisplayLayout::Vertical => egui::vec2(20.0, 80.0),
     };
 
-    let (rsp, painter) = ui.allocate_painter(max_size, egui::Sense::hover());
+    let (rsp, painter) = ui.allocate_painter(max_size, Sense::hover());
 
     let (right_pos, top_pos) = match layout {
-        BargraphLayout::Horizontal => (
+        NumDisplayLayout::Horizontal => (
             (1.0 - t) * rsp.rect.min.x + t * rsp.rect.max.x,
             rsp.rect.min.y,
         ),
-        BargraphLayout::Vertical => (
+        NumDisplayLayout::Vertical => (
             rsp.rect.max.x,
             (1.0 - t) * rsp.rect.max.y + t * rsp.rect.min.y,
         ),

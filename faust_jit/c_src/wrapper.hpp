@@ -3,6 +3,9 @@
 // and as simple as possible. This is why we re-declare here opaquely the few
 // faust types we need, instead of including the faust headers directly.
 
+#ifndef WRAPPER_HPP
+#define WRAPPER_HPP
+
 struct llvm_dsp_poly_factory;
 struct timed_dsp;
 
@@ -71,11 +74,9 @@ struct WWidgetDecl
     float step;
 };
 
-typedef void (*WWidgetDeclCallback)(void *context, const char *label, WWidgetDecl decl);
-
 struct WUIs;
 
-WUIs *w_createUIs(WDsp *dsp, WWidgetDeclCallback callback, void *gui_builder);
+WUIs *w_createUIs(WDsp *dsp, void *gui_builder);
 
 void w_deleteUIs(WUIs *h);
 
@@ -93,3 +94,5 @@ enum WMidiSyncMsg
 };
 
 void w_handleMidiSync(WUIs *h, double time, WMidiSyncMsg status);
+
+#endif
