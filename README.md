@@ -86,7 +86,7 @@ cargo run --release
 ## Faust features not yet supported
 
 - Soundfiles
-- Metadata (units, style, hidden, etc) for widgets
+- Style and scale metadata for widgets (except `[scale:log]` for sliders)
 
 ## Crates
 
@@ -97,6 +97,8 @@ exposed as lower-level crates, that could be reused in other projects:
 `libfaust` API that is needed to:
 
 - load an effect or instrument DSP from a script,
+- expose the needed widgets and DSP internal parameter zones to build a GUI for
+  the DSP,
 - process audio buffers with it,
 - extract the information needed to build a GUI that can tweak the DSP's
   internal parameters (represented as the `DspWidget` type).

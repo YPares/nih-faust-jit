@@ -141,7 +141,6 @@ impl SingletonDsp {
             *this.uis.get_mut() = unsafe {
                 w_createUIs(
                     inst_ptr,
-                    Some(widget_decl_callback),
                     (&mut widgets_builder) as *mut DspWidgetsBuilder as *mut c_void,
                 )
             };
