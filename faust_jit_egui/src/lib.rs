@@ -66,7 +66,7 @@ fn faust_widgets_ui_rec(ui: &mut egui::Ui, widgets: &mut [DspWidget<&mut f32>], 
                     header.show(ui, draw_inner);
                 }
             }
-            DspWidget::Button {
+            DspWidget::BoolParam {
                 layout,
                 label,
                 zone,
@@ -74,7 +74,7 @@ fn faust_widgets_ui_rec(ui: &mut egui::Ui, widgets: &mut [DspWidget<&mut f32>], 
                 tooltip,
             } => {
                 let resp = match layout {
-                    ButtonLayout::Held => {
+                    BoolParamLayout::Held => {
                         let mut button =
                             egui::Button::new(&*label).sense(Sense::drag().union(Sense::hover()));
                         if **zone != 0.0 {
@@ -91,7 +91,7 @@ fn faust_widgets_ui_rec(ui: &mut egui::Ui, widgets: &mut [DspWidget<&mut f32>], 
                         }
                         resp
                     }
-                    ButtonLayout::Checkbox => {
+                    BoolParamLayout::Checkbox => {
                         let mut selected = **zone != 0.0;
                         let resp = ui.checkbox(&mut selected, &*label).interact(Sense::hover());
                         **zone = selected as i32 as f32;
@@ -112,7 +112,7 @@ fn faust_widgets_ui_rec(ui: &mut egui::Ui, widgets: &mut [DspWidget<&mut f32>], 
                 step,
                 init,
                 metadata:
-                    Metadata {
+                    NumMetadata {
                         unit,
                         scale: _,
                         hidden: false,
@@ -161,7 +161,7 @@ fn faust_widgets_ui_rec(ui: &mut egui::Ui, widgets: &mut [DspWidget<&mut f32>], 
                 min,
                 max,
                 metadata:
-                    Metadata {
+                    NumMetadata {
                         unit,
                         scale: _,
                         hidden: false,

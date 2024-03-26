@@ -24,12 +24,12 @@ impl BoxLayout {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub enum ButtonLayout {
+pub enum BoolParamLayout {
     Held,
     Checkbox,
 }
 
-impl ButtonLayout {
+impl BoolParamLayout {
     fn from_decl_type(typ: WWidgetDeclType) -> Self {
         match typ {
             WWidgetDeclType::BUTTON => Self::Held,
@@ -74,27 +74,58 @@ impl NumDisplayLayout {
 }
 
 #[derive(Debug)]
-pub struct Metadata {
+/// Metadata for floating-point numerical widgets (common to DspWidget::NumParam
+/// and NumDisplay)
+pub struct NumMetadata {
+    /// A suffix to display with the value
     pub unit: Option<String>,
+    /// Which scale (lin, log, exp) to use
     pub scale: WidgetScale,
+    /// Whether to show the widget at all
     pub hidden: bool,
+    /// A text to show when hovering the widget
     pub tooltip: Option<String>,
 }
 
 #[derive(Debug)]
+/// A Rust representation of some widget in a Faust DSP script. The
+/// correspondence is not one-to-one: Faust widgets are grouped in functionally
+/// identical variants (same value type, same metadata) which only differ in
+/// their visual representation. The visual representation to use is contained
+/// for each variant in a 'layout' field whose type depends on the variant (like
+/// NumParamLayout for a NumParam, ie. a Faust slider or nentry), and can be
+/// completed by an additional 'style' field (read from the widget's metadata in
+/// the script).
+///
+/// The extra metadata listed for some widget in the DSP script is also
+/// represented by the inner fields of its corresponding DspWidget variant (how
+/// exactly depends on the variant).
+///
+/// The "zone" (Z type param) corresponds to some reference to use to read &
+/// write the current value attached to this widget. Internally, it's a C
+/// pointer (to some internal memory region of the DSP object) that can be read
+/// or written atomically.
 pub enum DspWidget<Z> {
+    /// Widgets containing others (tgroup, hgroup and vgroup in Faust)
+    ///
+    /// The "box" term is the one used in the libfaust API
     Box {
         layout: BoxLayout,
         label: String,
         inner: Vec<DspWidget<Z>>,
     },
-    Button {
-        layout: ButtonLayout,
+    /// Widgets corresponding to interactive boolean parameters (button and
+    /// checkbox in Faust)
+    BoolParam {
+        layout: BoolParamLayout,
         label: String,
         zone: Z,
         hidden: bool,
         tooltip: Option<String>,
     },
+    /// Widgets corresponding to interactive numerical floating-point parameters
+    /// (hslider, vslider and nentry in Faust), which can take continuous or
+    /// discrete values within some range
     NumParam {
         layout: NumParamLayout,
         style: NumParamStyle,
@@ -104,8 +135,11 @@ pub enum DspWidget<Z> {
         min: f32,
         max: f32,
         step: f32,
-        metadata: Metadata,
+        metadata: NumMetadata,
     },
+    /// Widgets corresponding to non-interactive numerical floating-point
+    /// displays (hbargraph and vbargraph in Faust), which can show any value
+    /// within some range
     NumDisplay {
         layout: NumDisplayLayout,
         style: NumDisplayStyle,
@@ -113,7 +147,7 @@ pub enum DspWidget<Z> {
         zone: Z,
         min: f32,
         max: f32,
-        metadata: Metadata,
+        metadata: NumMetadata,
     },
     // Soundfile {
     //     label: String,
@@ -126,7 +160,7 @@ impl<Z> DspWidget<Z> {
     pub fn label(&self) -> &str {
         match self {
             DspWidget::Box { label, .. } => label,
-            DspWidget::Button { label, .. } => label,
+            DspWidget::BoolParam { label, .. } => label,
             DspWidget::NumParam { label, .. } => label,
             DspWidget::NumDisplay { label, .. } => label,
         }
@@ -134,21 +168,34 @@ impl<Z> DspWidget<Z> {
 }
 
 #[derive(Debug)]
+/// Which GUI element to use to display a slider or nentry
 pub enum NumParamStyle {
-    Regular,
+    /// Just use the 'layout' field
+    FromLayout,
+    /// Use a circular knob
     Knob,
+    /// Use a dropdown list of labels which each correspond to a specific value
+    /// (for discrete-valued parameters)
     Menu(HashMap<String, f32>),
+    /// Use a set of labelled, mutally-exclusive radio buttons (for
+    /// discrete-valued parameters)
     Radio(HashMap<String, f32>),
 }
 
 #[derive(Debug)]
+/// Which GUI element to use to display a bargraph
 pub enum NumDisplayStyle {
-    Regular,
+    /// Just use the 'layout' field
+    FromLayout,
+    /// Encode the value as the color of a led-like display
     Led,
+    /// Just show the value as plain text with no extra fuss
     Numerical,
 }
 
 #[derive(Debug)]
+/// Which scale (linear, logarithmic or exponential) to use to display a slider
+/// or bargraph
 pub enum WidgetScale {
     Lin,
     Log,
@@ -220,8 +267,8 @@ impl DspWidgetsBuilder {
                 .metadata_map
                 .get_mut(&decl.zone)
                 .unwrap_or(&mut empty_vec);
-            let mut opt_style = None;
-            let mut metadata = Metadata {
+            let mut style = None;
+            let mut metadata = NumMetadata {
                 unit: None,
                 scale: WidgetScale::Lin,
                 hidden: false,
@@ -229,7 +276,7 @@ impl DspWidgetsBuilder {
             };
             while let Some(elem) = md_elems.pop() {
                 match elem {
-                    ME::Style(s) => opt_style = Some(s),
+                    ME::Style(s) => style = Some(s),
                     ME::Scale(s) => metadata.scale = s,
                     ME::Hidden(h) => metadata.hidden = h,
                     ME::Unit(u) => metadata.unit = Some(u),
@@ -244,8 +291,8 @@ impl DspWidgetsBuilder {
                     label,
                     inner: vec![],
                 },
-                W::BUTTON | W::CHECK_BUTTON => DspWidget::Button {
-                    layout: ButtonLayout::from_decl_type(decl.typ),
+                W::BUTTON | W::CHECK_BUTTON => DspWidget::BoolParam {
+                    layout: BoolParamLayout::from_decl_type(decl.typ),
                     label,
                     zone: unsafe { Zone::from_zone_ptr(decl.zone) },
                     hidden: metadata.hidden,
@@ -253,9 +300,9 @@ impl DspWidgetsBuilder {
                 },
                 W::HORIZONTAL_SLIDER | W::VERTICAL_SLIDER | W::NUM_ENTRY => DspWidget::NumParam {
                     layout: NumParamLayout::from_decl_type(decl.typ),
-                    style: match opt_style {
+                    style: match style {
                         Some(WidgetStyle::Param(s)) => s,
-                        _ => NumParamStyle::Regular,
+                        _ => NumParamStyle::FromLayout,
                     },
                     label,
                     zone: unsafe { Zone::from_zone_ptr(decl.zone) },
@@ -267,9 +314,9 @@ impl DspWidgetsBuilder {
                 },
                 W::HORIZONTAL_BARGRAPH | W::VERTICAL_BARGRAPH => DspWidget::NumDisplay {
                     layout: NumDisplayLayout::from_decl_type(decl.typ),
-                    style: match opt_style {
+                    style: match style {
                         Some(WidgetStyle::Disp(s)) => s,
-                        _ => NumDisplayStyle::Regular,
+                        _ => NumDisplayStyle::FromLayout,
                     },
                     label,
                     zone: unsafe { Zone::from_zone_ptr(decl.zone) },
