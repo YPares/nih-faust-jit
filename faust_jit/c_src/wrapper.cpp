@@ -77,7 +77,10 @@ void w_computeBuffer(WDsp *dsp, int count, float **buf)
 {
     // We used --in-place when creating the DSP, so input and output should
     // be the same pointer
-    dsp->compute(count, buf, buf);
+    //
+    // -1 means that MIDI events that were sent before (for this buffer) were
+    // already timestamped using sample numbers
+    dsp->compute(-1, count, buf, buf);
 }
 
 void w_deleteDSPInstance(WDsp *dsp)

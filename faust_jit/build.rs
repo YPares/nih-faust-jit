@@ -15,7 +15,12 @@ fn main() {
     );
 
     // Tell cargo to invalidate the built crate whenever the wrapper changes
-    println!("cargo:rerun-if-changed=c_src/wrapper.hpp");
+    for c_file in glob::glob("c_src/**/*").unwrap() {
+        println!(
+            "cargo:rerun-if-changed={}",
+            c_file.unwrap().to_str().unwrap()
+        );
+    }
 
     let faust_headers_path =
         env::var("FAUST_HEADERS_PATH").expect("env var FAUST_HEADERS_PATH not found");
