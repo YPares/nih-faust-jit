@@ -13,6 +13,31 @@ fn hgroup_header_icon(ui: &mut egui::Ui, openness: f32, response: &egui::Respons
     }
 }
 
+trait DoIf: Sized {
+    /// Call a function on self if a condition is met
+    fn do_if(self, cond: bool, f: impl FnOnce(Self) -> Self) -> Self;
+
+    /// Call a function on self if an option value is Some
+    fn do_if_some<T>(self, cond: Option<T>, f: impl FnOnce(Self, T) -> Self) -> Self;
+}
+
+impl<T> DoIf for T {
+    fn do_if(self, cond: bool, f: impl FnOnce(Self) -> Self) -> Self {
+        if cond {
+            f(self)
+        } else {
+            self
+        }
+    }
+
+    fn do_if_some<X>(self, option: Option<X>, f: impl FnOnce(Self, X) -> Self) -> Self {
+        match option {
+            Some(x) => f(self, x),
+            None => self,
+        }
+    }
+}
+
 fn faust_widgets_ui_rec(ui: &mut egui::Ui, widgets: &mut [DspWidget<&mut f32>], in_a_tab: bool) {
     for w in widgets {
         match w {
@@ -30,10 +55,8 @@ fn faust_widgets_ui_rec(ui: &mut egui::Ui, widgets: &mut [DspWidget<&mut f32>], 
                 .show_header(ui, |ui| {
                     ui.label(&*label);
                     for (idx, w) in inner.iter().enumerate() {
-                        let mut btn = egui::Button::new(w.label());
-                        if *selected == idx {
-                            btn = btn.fill(egui::Color32::DARK_BLUE);
-                        }
+                        let btn = egui::Button::new(w.label())
+                            .do_if(*selected == idx, |s| s.fill(egui::Color32::DARK_BLUE));
                         if ui.add(btn).clicked() {
                             *selected = idx;
                         }
@@ -59,11 +82,12 @@ fn faust_widgets_ui_rec(ui: &mut egui::Ui, widgets: &mut [DspWidget<&mut f32>], 
                 if in_a_tab || label.is_empty() {
                     draw_inner(ui);
                 } else {
-                    let mut header = egui::CollapsingHeader::new(&*label).default_open(true);
-                    if *layout == BoxLayout::Horizontal {
-                        header = header.icon(hgroup_header_icon);
-                    }
-                    header.show(ui, draw_inner);
+                    egui::CollapsingHeader::new(&*label)
+                        .default_open(true)
+                        .do_if(*layout == BoxLayout::Horizontal, |s| {
+                            s.icon(hgroup_header_icon)
+                        })
+                        .show(ui, draw_inner);
                 }
             }
             DspWidget::BoolParam {
@@ -75,12 +99,12 @@ fn faust_widgets_ui_rec(ui: &mut egui::Ui, widgets: &mut [DspWidget<&mut f32>], 
             } => {
                 let resp = match layout {
                     BoolParamLayout::Held => {
-                        let mut button =
-                            egui::Button::new(&*label).sense(Sense::drag().union(Sense::hover()));
-                        if **zone != 0.0 {
-                            // If the gate is currently on:
-                            button = button.fill(egui::Color32::from_rgb(115, 115, 50));
-                        }
+                        let button = egui::Button::new(&*label)
+                            .sense(Sense::drag().union(Sense::hover()))
+                            .do_if(**zone != 0.0, |s| {
+                                // If the gate is currently on:
+                                s.fill(egui::Color32::from_rgb(115, 115, 50))
+                            });
                         let resp = ui.add(button);
                         if resp.drag_started() {
                             // If the button just started to be held:
@@ -114,41 +138,36 @@ fn faust_widgets_ui_rec(ui: &mut egui::Ui, widgets: &mut [DspWidget<&mut f32>], 
                 metadata:
                     NumMetadata {
                         unit,
-                        scale: _,
+                        scale,
                         hidden: false,
                         tooltip,
                     },
             } => {
                 let rng = std::ops::RangeInclusive::new(*min, *max);
-                let unit_txt = unit.as_deref().unwrap_or("");
                 ui.vertical(|ui| {
                     if !label.is_empty() {
                         let resp = ui
                             .label(&*label)
-                            .interact(Sense::click().union(Sense::hover()));
+                            .interact(Sense::click().union(Sense::hover()))
+                            .do_if_some(tooltip.as_deref(), |s, tooltip| {
+                                s.on_hover_text(tooltip.to_owned())
+                            });
                         if resp.double_clicked() {
                             **zone = *init;
-                        }
-                        if let Some(txt) = tooltip {
-                            resp.on_hover_text(txt.to_owned());
                         }
                     }
                     match layout {
                         NumParamLayout::NumEntry => ui.add(
                             egui::DragValue::new(*zone)
                                 .clamp_range(rng)
-                                .suffix(unit_txt),
+                                .do_if_some(unit.as_deref(), |s, unit| s.suffix(unit)),
                         ),
-                        NumParamLayout::HorizontalSlider => ui.add(
+                        _ => ui.add(
                             egui::Slider::new(*zone, rng)
                                 .step_by(*step as f64)
-                                .suffix(unit_txt),
-                        ),
-                        NumParamLayout::VerticalSlider => ui.add(
-                            egui::Slider::new(*zone, rng)
-                                .step_by(*step as f64)
-                                .vertical()
-                                .suffix(unit_txt),
+                                .do_if_some(unit.as_deref(), |s, unit| s.suffix(unit))
+                                .do_if(*layout == NumParamLayout::VerticalSlider, |s| s.vertical())
+                                .do_if(*scale == WidgetScale::Log, |s| s.logarithmic(true)), // TODO: Deal with Exp
                         ),
                     };
                 });
@@ -170,15 +189,16 @@ fn faust_widgets_ui_rec(ui: &mut egui::Ui, widgets: &mut [DspWidget<&mut f32>], 
             } => {
                 let cur_val = **zone;
                 let t = (cur_val - *min) / (*max - *min);
-                let unit_txt = unit.as_deref().unwrap_or("");
+                let unit_or_empty = unit.as_deref().unwrap_or("");
 
                 ui.vertical(|ui| {
                     let label_width = if !label.is_empty() {
-                        let resp = ui.label(&*label).interact(Sense::hover());
-                        let resp = match tooltip {
-                            Some(txt) => resp.on_hover_text(txt.to_owned()),
-                            None => resp,
-                        };
+                        let resp = ui
+                            .label(&*label)
+                            .interact(Sense::hover())
+                            .do_if_some(tooltip.as_deref(), |s, tooltip| {
+                                s.on_hover_text(tooltip.to_owned())
+                            });
                         resp.rect.max.x - resp.rect.min.x
                     } else {
                         30.0
@@ -187,8 +207,8 @@ fn faust_widgets_ui_rec(ui: &mut egui::Ui, widgets: &mut [DspWidget<&mut f32>], 
                         NumDisplayLayout::Horizontal => {
                             ui.horizontal(|ui| {
                                 ui.label(format!("{:.2}", min));
-                                draw_bargraph(ui, t, cur_val, unit_txt, layout);
-                                ui.label(format!("{:.2}{}", max, unit_txt));
+                                draw_bargraph(ui, t, cur_val, unit_or_empty, layout);
+                                ui.label(format!("{:.2}{}", max, unit_or_empty));
                             });
                         }
                         NumDisplayLayout::Vertical => {
@@ -196,8 +216,8 @@ fn faust_widgets_ui_rec(ui: &mut egui::Ui, widgets: &mut [DspWidget<&mut f32>], 
                                 egui::vec2(label_width, 100.0),
                                 Layout::top_down(Align::Center),
                                 |ui| {
-                                    ui.label(format!("{:.2}{}", max, unit_txt));
-                                    draw_bargraph(ui, t, cur_val, unit_txt, layout);
+                                    ui.label(format!("{:.2}{}", max, unit_or_empty));
+                                    draw_bargraph(ui, t, cur_val, unit_or_empty, layout);
                                     ui.label(format!("{:.2}", min));
                                 },
                             );
@@ -266,7 +286,7 @@ fn draw_bargraph(
         },
     );
 
-    rsp.on_hover_text(format!("{}{}", cur_val, unit));
+    rsp.on_hover_text(format!("{} {}", cur_val, unit));
 }
 
 fn lerp_colors(min: egui::Color32, max: egui::Color32, t: f32) -> egui::Color32 {

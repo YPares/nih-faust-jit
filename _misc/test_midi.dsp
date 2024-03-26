@@ -11,10 +11,10 @@ tp = checkbox("v:global/Transport[midi:start][midi:stop][tooltip:If Play is on o
 clk = checkbox("v:global/Clock[midi:clock][hidden:1]") : front : freq :
       hbargraph("ClockFreq[tooltip:Frequency of the received clock][unit:ppqn]",0,100);
 
-// detect front
+// emits a spike (a 1 impulse) every time the input value changes. 0 else
 front(x) = (x-x') != 0.0;
 
-// count number of peaks during one second
+// counts the number of spikes per second in the input
 freq(x) = (x-x@ma.SR) : + ~ _;
 
 process = os.osc(f)*v*t,tp : attach : _,cc : attach : _,clk : attach <: _,_;

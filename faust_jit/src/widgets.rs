@@ -167,7 +167,7 @@ impl<Z> DspWidget<Z> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 /// Which GUI element to use to display a slider or nentry
 pub enum NumParamStyle {
     /// Just use the 'layout' field
@@ -182,7 +182,7 @@ pub enum NumParamStyle {
     Radio(HashMap<String, f32>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 /// Which GUI element to use to display a bargraph
 pub enum NumDisplayStyle {
     /// Just use the 'layout' field
@@ -193,7 +193,7 @@ pub enum NumDisplayStyle {
     Numerical,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 /// Which scale (linear, logarithmic or exponential) to use to display a slider
 /// or bargraph
 pub enum WidgetScale {
