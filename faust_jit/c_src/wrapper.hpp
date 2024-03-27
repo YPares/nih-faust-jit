@@ -12,7 +12,7 @@ struct timed_dsp;
 typedef llvm_dsp_poly_factory WFactory;
 typedef timed_dsp WDsp;
 
-WFactory *w_createDSPFactoryFromFile(const char *filepath, const int libs_path_len, const char **libs_path, char *err_msg_c);
+WFactory *w_createDSPFactoryFromFile(const char *filepath, const int argc, const char *argv[], char *err_msg_c);
 
 void w_deleteDSPFactory(WFactory *factory);
 

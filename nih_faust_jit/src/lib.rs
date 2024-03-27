@@ -158,7 +158,7 @@ impl Plugin for NihFaustJit {
                     Some(script_path) => {
                         match faust_jit::SingletonDsp::from_file(
                             script_path,
-                            &selected_paths.dsp_lib_path,
+                            &[&selected_paths.dsp_lib_path],
                             sample_rate,
                             dsp_nvoices,
                         ) {

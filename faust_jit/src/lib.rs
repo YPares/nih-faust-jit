@@ -87,21 +87,26 @@ pub struct ClockData {
     pub next_buffer_sample_position: i64,
 }
 
+fn path_to_cstring(p: &Path) -> Result<CString, String> {
+    CString::new(p.to_str().ok_or("Path cannot not be converted to string")?)
+        .map_err(|e| e.to_string())
+}
+
 impl SingletonDsp {
     /// Load a faust .dsp file and initialize the DSP
     ///
     /// nvoices controls both the amount of voices and the type of DSP that will
     /// be loaded. See w_createDSPInstance for more info.
-    /// 
-    /// Adds to the dsp libs PATH the parent of script_path, so that script can
-    /// import other files using paths relative to itself
+    ///
+    /// Adds to the import_paths the parent folder of script_path, so that the
+    /// script can import other files using paths relative to itself
     pub fn from_file(
         script_path: &Path,
-        dsp_libs_path: &Path,
+        import_paths: &[&Path],
         sample_rate: f32,
         nvoices: i32,
     ) -> Result<Self, String> {
-        let mut this = Self {
+        let mut dsp = Self {
             sample_rate,
             transport_already_playing: AtomicBool::new(false),
             factory: AtomicPtr::new(null_mut()),
@@ -116,21 +121,26 @@ impl SingletonDsp {
                 num_outputs: 0,
             },
         };
-        let script_folder = script_path
+        let script_parent_folder = script_path
             .parent()
             .ok_or("Parent folder of script couldn't be found")?;
-        let [script_path_c, dsp_libs_path_c, script_folder_c] =
-            [script_path, dsp_libs_path, script_folder].map(|s| {
-                CString::new(s.to_str().unwrap())
-                    .expect(&format!("{:?} failed to convert to CString", s))
-            });
-        let mut full_path_c = [dsp_libs_path_c.as_ptr(), script_folder_c.as_ptr()];
+        let script_path = path_to_cstring(script_path)?;
+        let mut args = vec![
+            c"--in-place".to_owned(),
+            c"-I".to_owned(),
+            path_to_cstring(script_parent_folder)?,
+        ];
+        for folder in import_paths {
+            args.push(c"-I".to_owned());
+            args.push(path_to_cstring(folder)?);
+        }
+        let mut args_ptrs: Vec<_> = args.iter().map(|cstring| cstring.as_ptr()).collect();
         let mut error_msg_buf = [0; 4096];
         let fac_ptr = unsafe {
             w_createDSPFactoryFromFile(
-                script_path_c.as_ptr(),
-                full_path_c.len() as i32,
-                full_path_c.as_mut_ptr(),
+                script_path.as_ptr(),
+                args_ptrs.len() as i32,
+                args_ptrs.as_mut_ptr(),
                 error_msg_buf.as_mut_ptr(),
             )
         };
@@ -142,22 +152,22 @@ impl SingletonDsp {
                 .map_err(|s| format!("Could not parse Faust err msg as utf8: {}", s))?
                 .to_string())
         } else {
-            *this.factory.get_mut() = fac_ptr;
+            *dsp.factory.get_mut() = fac_ptr;
             let inst_ptr =
                 unsafe { w_createDSPInstance(fac_ptr, sample_rate as i32, nvoices, false) };
-            *this.instance.get_mut().unwrap().get_mut() = inst_ptr;
-            this.info = unsafe { w_getDSPInfo(inst_ptr) };
-            *this.chan_ptrs.vec.get_mut() =
-                vec![null_mut(); this.info.num_inputs.max(this.info.num_outputs) as usize];
+            *dsp.instance.get_mut().unwrap().get_mut() = inst_ptr;
+            dsp.info = unsafe { w_getDSPInfo(inst_ptr) };
+            *dsp.chan_ptrs.vec.get_mut() =
+                vec![null_mut(); dsp.info.num_inputs.max(dsp.info.num_outputs) as usize];
             let mut widgets_builder = DspWidgetsBuilder::new();
-            *this.uis.get_mut() = unsafe {
+            *dsp.uis.get_mut() = unsafe {
                 w_createUIs(
                     inst_ptr,
                     (&mut widgets_builder) as *mut DspWidgetsBuilder as *mut c_void,
                 )
             };
-            widgets_builder.build_widgets(this.widgets.get_mut().unwrap());
-            Ok(this)
+            widgets_builder.build_widgets(dsp.widgets.get_mut().unwrap());
+            Ok(dsp)
         }
     }
 
