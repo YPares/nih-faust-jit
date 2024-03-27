@@ -128,7 +128,7 @@ fn faust_widgets_ui_rec(ui: &mut egui::Ui, widgets: &mut [DspWidget<&mut f32>], 
             }
             DspWidget::NumParam {
                 layout,
-                style: _,
+                style,
                 label,
                 zone,
                 min,
@@ -156,25 +156,54 @@ fn faust_widgets_ui_rec(ui: &mut egui::Ui, widgets: &mut [DspWidget<&mut f32>], 
                             **zone = *init;
                         }
                     }
-                    match layout {
-                        NumParamLayout::NumEntry => ui.add(
-                            egui::DragValue::new(*zone)
-                                .clamp_range(rng)
-                                .do_if_some(unit.as_deref(), |s, unit| s.suffix(unit)),
-                        ),
-                        _ => ui.add(
-                            egui::Slider::new(*zone, rng)
-                                .step_by(*step as f64)
-                                .do_if_some(unit.as_deref(), |s, unit| s.suffix(unit))
-                                .do_if(*layout == NumParamLayout::VerticalSlider, |s| s.vertical())
-                                .do_if(*scale == WidgetScale::Log, |s| s.logarithmic(true)), // TODO: Deal with Exp
-                        ),
+                    match (layout, style) {
+                        // TODO: NumParamStyle::Knob
+                        (_, NumParamStyle::Menu(vals)) => {
+                            egui::ComboBox::from_id_source(&*label)
+                                .selected_text(vals.options[vals.selected].0.clone())
+                                .show_ui(ui, |ui| {
+                                    for (i, (k, _)) in vals.options.iter().enumerate() {
+                                        ui.selectable_value(&mut vals.selected, i, k);
+                                    }
+                                });
+                            **zone = vals.options[vals.selected].1
+                        }
+                        (layout, NumParamStyle::Radio(vals)) => {
+                            let egui_layout = match layout {
+                                NumParamLayout::VerticalSlider => Layout::top_down(Align::Min),
+                                _ => Layout::left_to_right(Align::Min),
+                            };
+                            ui.with_layout(egui_layout, |ui| {
+                                for (i, (k, _)) in vals.options.iter().enumerate() {
+                                    ui.radio_value(&mut vals.selected, i, k);
+                                }
+                            });
+                            **zone = vals.options[vals.selected].1
+                        }
+                        (NumParamLayout::NumEntry, _) => {
+                            ui.add(
+                                egui::DragValue::new(*zone)
+                                    .clamp_range(rng)
+                                    .do_if_some(unit.as_deref(), |s, unit| s.suffix(unit)),
+                            );
+                        }
+                        (layout, _) => {
+                            ui.add(
+                                egui::Slider::new(*zone, rng)
+                                    .step_by(*step as f64)
+                                    .do_if_some(unit.as_deref(), |s, unit| s.suffix(unit))
+                                    .do_if(*layout == NumParamLayout::VerticalSlider, |s| {
+                                        s.vertical()
+                                    })
+                                    .do_if(*scale == WidgetScale::Log, |s| s.logarithmic(true)), // TODO: Deal with Exp
+                            );
+                        }
                     };
                 });
             }
             DspWidget::NumDisplay {
                 layout,
-                style: _,
+                style,
                 label,
                 zone,
                 min,
@@ -188,7 +217,7 @@ fn faust_widgets_ui_rec(ui: &mut egui::Ui, widgets: &mut [DspWidget<&mut f32>], 
                     },
             } => {
                 let cur_val = **zone;
-                let t = (cur_val - *min) / (*max - *min);
+                let mut t = (cur_val - *min) / (*max - *min);
                 let unit_or_empty = unit.as_deref().unwrap_or("");
 
                 ui.vertical(|ui| {
@@ -203,21 +232,40 @@ fn faust_widgets_ui_rec(ui: &mut egui::Ui, widgets: &mut [DspWidget<&mut f32>], 
                     } else {
                         30.0
                     };
-                    match layout {
-                        NumDisplayLayout::Horizontal => {
+                    match (layout, style) {
+                        // TODO: NumDisplayStyle::Led
+                        (_, NumDisplayStyle::Numerical) => {
+                            ui.colored_label(
+                                clamp_and_colorize(&mut t),
+                                format!("{:.2} {}", cur_val, unit_or_empty),
+                            );
+                        }
+                        (NumDisplayLayout::Horizontal, _) => {
                             ui.horizontal(|ui| {
                                 ui.label(format!("{:.2}", min));
-                                draw_bargraph(ui, t, cur_val, unit_or_empty, layout);
+                                draw_bargraph(
+                                    ui,
+                                    t,
+                                    cur_val,
+                                    unit_or_empty,
+                                    &NumDisplayLayout::Horizontal,
+                                );
                                 ui.label(format!("{:.2}{}", max, unit_or_empty));
                             });
                         }
-                        NumDisplayLayout::Vertical => {
+                        (NumDisplayLayout::Vertical, _) => {
                             ui.allocate_ui_with_layout(
                                 egui::vec2(label_width, 100.0),
                                 Layout::top_down(Align::Center),
                                 |ui| {
                                     ui.label(format!("{:.2}{}", max, unit_or_empty));
-                                    draw_bargraph(ui, t, cur_val, unit_or_empty, layout);
+                                    draw_bargraph(
+                                        ui,
+                                        t,
+                                        cur_val,
+                                        unit_or_empty,
+                                        &NumDisplayLayout::Vertical,
+                                    );
                                     ui.label(format!("{:.2}", min));
                                 },
                             );
@@ -230,6 +278,21 @@ fn faust_widgets_ui_rec(ui: &mut egui::Ui, widgets: &mut [DspWidget<&mut f32>], 
     }
 }
 
+fn clamp_and_colorize(t: &mut f32) -> egui::Color32 {
+    let min_color = egui::Color32::DARK_GREEN;
+    let max_color = egui::Color32::YELLOW;
+
+    if *t < 0.0 {
+        *t = 0.0;
+        min_color
+    } else if *t > 1.0 {
+        *t = 1.0;
+        egui::Color32::RED
+    } else {
+        lerp_colors(min_color, max_color, *t)
+    }
+}
+
 fn draw_bargraph(
     ui: &mut egui::Ui,
     mut t: f32,
@@ -237,18 +300,7 @@ fn draw_bargraph(
     unit: &str,
     layout: &NumDisplayLayout,
 ) {
-    let min_color = egui::Color32::DARK_GREEN;
-    let max_color = egui::Color32::YELLOW;
-
-    let cur_color = if t < 0.0 {
-        t = 0.0;
-        min_color
-    } else if t > 1.0 {
-        t = 1.0;
-        egui::Color32::RED
-    } else {
-        lerp_colors(min_color, max_color, t)
-    };
+    let cur_color = clamp_and_colorize(&mut t);
 
     let max_size = match layout {
         NumDisplayLayout::Horizontal => egui::vec2(80.0, 20.0),

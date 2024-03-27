@@ -86,7 +86,8 @@ cargo run --release
 ## Faust features not yet supported
 
 - Soundfiles
-- Style and scale metadata are not reflected in the GUI (except `[scale:log]` for sliders)
+- Some style (`knob` and `led`) and scale (`exp` for sliders/bargraphs, and
+  `log` for bargraphs) metadata are not taken into account in the GUI
 
 ## Crates
 

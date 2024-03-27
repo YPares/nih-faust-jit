@@ -7,7 +7,11 @@ use std::{
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum BoxLayout {
-    Tab { selected: usize },
+    /// 'selected' is initialized to 0 and can be mutated later to record which
+    /// tab is currently opened
+    Tab {
+        selected: usize,
+    },
     Horizontal,
     Vertical,
 }
@@ -168,6 +172,16 @@ impl<Z> DspWidget<Z> {
 }
 
 #[derive(Debug, PartialEq)]
+/// A list of (label,value) pairs for Menu and Radio styles
+pub struct SelectableVals {
+    /// The list of selectable options and their corresponding labels
+    pub options: Vec<(String, f32)>,
+    /// 'selected' is initialized to 0 and can be mutated later to record which
+    /// option is selected
+    pub selected: usize,
+}
+
+#[derive(Debug, PartialEq)]
 /// Which GUI element to use to display a slider or nentry
 pub enum NumParamStyle {
     /// Just use the 'layout' field
@@ -176,10 +190,10 @@ pub enum NumParamStyle {
     Knob,
     /// Use a dropdown list of labels which each correspond to a specific value
     /// (for discrete-valued parameters)
-    Menu(HashMap<String, f32>),
+    Menu(SelectableVals),
     /// Use a set of labelled, mutally-exclusive radio buttons (for
     /// discrete-valued parameters)
-    Radio(HashMap<String, f32>),
+    Radio(SelectableVals),
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -382,11 +396,19 @@ extern "C" fn rs_declare_metadata(
             "numerical" => Some(ME::Style(WS::Disp(NumDisplayStyle::Numerical))),
             _ => {
                 if value.starts_with("menu") {
-                    let dict = parse_metadata_dict(&value[4..]);
-                    Some(ME::Style(WS::Param(NumParamStyle::Menu(dict))))
+                    parse_metadata_dict(&value[4..]).map(|options| {
+                        ME::Style(WS::Param(NumParamStyle::Menu(SelectableVals {
+                            options,
+                            selected: 0,
+                        })))
+                    })
                 } else if value.starts_with("radio") {
-                    let dict = parse_metadata_dict(&value[5..]);
-                    Some(ME::Style(WS::Param(NumParamStyle::Radio(dict))))
+                    parse_metadata_dict(&value[5..]).map(|options| {
+                        ME::Style(WS::Param(NumParamStyle::Radio(SelectableVals {
+                            options,
+                            selected: 0,
+                        })))
+                    })
                 } else {
                     None
                 }
@@ -414,16 +436,16 @@ extern "C" fn rs_declare_metadata(
     }
 }
 
-fn parse_metadata_dict(s: &str) -> HashMap<String, f32> {
+fn parse_metadata_dict(s: &str) -> Option<Vec<(String, f32)>> {
     let trimmed = s.trim();
     let without_brackets = &trimmed[1..trimmed.len() - 1].trim();
-    let mut map = HashMap::new();
+    let mut vec = Vec::new();
     for kv_pair in without_brackets.split(";") {
         let mut it = kv_pair.split(":");
-        let mut k = it.next().unwrap().trim();
-        let v = it.next().unwrap().trim();
+        let mut k = it.next()?.trim();
+        let v = it.next()?.trim();
         k = &k[1..k.len() - 1]; // Remove the quotes
-        map.insert(k.to_owned(), v.parse().unwrap());
+        vec.push((k.to_owned(), v.parse().ok()?));
     }
-    map
+    Some(vec)
 }
