@@ -21,12 +21,17 @@
 std::list<GUI *> GUI::fGuiList;
 ztimedmap GUI::gTimedZoneMap;
 
-WFactory *w_createDSPFactoryFromFile(const char *filepath, const char *dsp_libs_path, char *err_msg_c)
+WFactory *w_createDSPFactoryFromFile(const char *filepath, const int libs_path_len, const char **libs_path, char *err_msg_c)
 {
-    int argc = 3;
-    const char *argv[] = {"--in-place", "-I", dsp_libs_path};
+    auto args = std::vector<const char *>();
+    args.push_back("--in-place");
+    for (uint32_t i = 0; i < libs_path_len; i++)
+    {
+        args.push_back("-I");
+        args.push_back(libs_path[i]);
+    }
     std::string err_msg;
-    WFactory *fac = createPolyDSPFactoryFromFile(filepath, argc, argv, "", err_msg, -1);
+    WFactory *fac = createPolyDSPFactoryFromFile(filepath, args.size(), &args[0], "", err_msg, -1);
     strncpy(err_msg_c, err_msg.c_str(), 4096);
     return fac;
 }
@@ -167,7 +172,8 @@ public:
     // -- soundfiles. TODO
     void addSoundfile(const char *label, const char *filename, Soundfile **sf_zone) {}
 
-    void declare(FAUSTFLOAT *zone, const char *key, const char *value) {
+    void declare(FAUSTFLOAT *zone, const char *key, const char *value)
+    {
         rs_declare_metadata(fBuilder, zone, key, value);
     }
 };

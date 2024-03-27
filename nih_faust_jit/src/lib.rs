@@ -157,8 +157,8 @@ impl Plugin for NihFaustJit {
                 let new_dsp_state = match &selected_paths.dsp_script {
                     Some(script_path) => {
                         match faust_jit::SingletonDsp::from_file(
-                            script_path.to_str().unwrap(),
-                            selected_paths.dsp_lib_path.to_str().unwrap(),
+                            script_path,
+                            &selected_paths.dsp_lib_path,
                             sample_rate,
                             dsp_nvoices,
                         ) {

@@ -1,6 +1,7 @@
 use std::{
     cell::RefCell,
     ffi::{c_void, CStr, CString},
+    path::Path,
     ptr::null_mut,
     sync::{
         atomic::{AtomicBool, AtomicPtr, Ordering},
@@ -91,9 +92,12 @@ impl SingletonDsp {
     ///
     /// nvoices controls both the amount of voices and the type of DSP that will
     /// be loaded. See w_createDSPInstance for more info.
+    /// 
+    /// Adds to the dsp libs PATH the parent of script_path, so that script can
+    /// import other files using paths relative to itself
     pub fn from_file(
-        script_path: &str,
-        dsp_libs_path: &str,
+        script_path: &Path,
+        dsp_libs_path: &Path,
         sample_rate: f32,
         nvoices: i32,
     ) -> Result<Self, String> {
@@ -112,13 +116,21 @@ impl SingletonDsp {
                 num_outputs: 0,
             },
         };
-        let [script_path_c, dsp_libs_path_c] = [script_path, dsp_libs_path]
-            .map(|s| CString::new(s).expect(&format!("{} failed to convert to CString", s)));
+        let script_folder = script_path
+            .parent()
+            .ok_or("Parent folder of script couldn't be found")?;
+        let [script_path_c, dsp_libs_path_c, script_folder_c] =
+            [script_path, dsp_libs_path, script_folder].map(|s| {
+                CString::new(s.to_str().unwrap())
+                    .expect(&format!("{:?} failed to convert to CString", s))
+            });
+        let mut full_path_c = [dsp_libs_path_c.as_ptr(), script_folder_c.as_ptr()];
         let mut error_msg_buf = [0; 4096];
         let fac_ptr = unsafe {
             w_createDSPFactoryFromFile(
                 script_path_c.as_ptr(),
-                dsp_libs_path_c.as_ptr(),
+                full_path_c.len() as i32,
+                full_path_c.as_mut_ptr(),
                 error_msg_buf.as_mut_ptr(),
             )
         };
