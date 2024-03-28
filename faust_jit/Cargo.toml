@@ -10,6 +10,10 @@ description = "Loading Faust DSP scripts"
 [lib]
 crate-type = ["lib"]
 
+[dependencies]
+chksum-sha1 = "0.0.*"
+rand = "0.8.*"
+
 [build-dependencies]
 cc = "1.0.*"
 bindgen = "0.69.*"

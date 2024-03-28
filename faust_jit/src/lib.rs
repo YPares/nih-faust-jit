@@ -1,6 +1,6 @@
 use std::{
     cell::RefCell,
-    ffi::{c_void, CStr, CString},
+    ffi::{c_char, c_void, CStr, CString},
     path::Path,
     ptr::null_mut,
     sync::{
@@ -12,8 +12,10 @@ use std::{
 use widgets::*;
 use wrapper::*;
 
+pub use cache::*;
 pub use wrapper::DspInfo;
 
+mod cache;
 pub mod widgets;
 mod wrapper;
 
@@ -100,7 +102,12 @@ impl SingletonDsp {
     ///
     /// Adds to the import_paths the parent folder of script_path, so that the
     /// script can import other files using paths relative to itself
+    ///
+    /// Can use a file-based Cache to store the LLVM bytecode to save time when
+    /// reloading the same DSP in a future execution. IMPORTANT: That cache
+    /// takes into account only the contents of the script, NOT what it imports
     pub fn from_file(
+        opt_cache: Option<Cache>,
         script_path: &Path,
         import_paths: &[&Path],
         sample_rate: f32,
@@ -121,54 +128,24 @@ impl SingletonDsp {
                 num_outputs: 0,
             },
         };
-        let script_parent_folder = script_path
-            .parent()
-            .ok_or("Parent folder of script couldn't be found")?;
-        let script_path = path_to_cstring(script_path)?;
-        let mut args = vec![
-            c"--in-place".to_owned(),
-            c"-I".to_owned(),
-            path_to_cstring(script_parent_folder)?,
-        ];
-        for folder in import_paths {
-            args.push(c"-I".to_owned());
-            args.push(path_to_cstring(folder)?);
-        }
-        let mut args_ptrs: Vec<_> = args.iter().map(|cstring| cstring.as_ptr()).collect();
-        let mut error_msg_buf = [0; 4096];
-        let fac_ptr = unsafe {
-            w_createDSPFactoryFromFile(
-                script_path.as_ptr(),
-                args_ptrs.len() as i32,
-                args_ptrs.as_mut_ptr(),
-                error_msg_buf.as_mut_ptr(),
+
+        let fac_ptr = read_or_create_factory(opt_cache, script_path, import_paths)?;
+
+        *dsp.factory.get_mut() = fac_ptr;
+        let inst_ptr = unsafe { w_createDSPInstance(fac_ptr, sample_rate as i32, nvoices, false) };
+        *dsp.instance.get_mut().unwrap().get_mut() = inst_ptr;
+        dsp.info = unsafe { w_getDSPInfo(inst_ptr) };
+        *dsp.chan_ptrs.vec.get_mut() =
+            vec![null_mut(); dsp.info.num_inputs.max(dsp.info.num_outputs) as usize];
+        let mut widgets_builder = DspWidgetsBuilder::new();
+        *dsp.uis.get_mut() = unsafe {
+            w_createUIs(
+                inst_ptr,
+                (&mut widgets_builder) as *mut DspWidgetsBuilder as *mut c_void,
             )
         };
-
-        if fac_ptr.is_null() {
-            let error_msg = unsafe { CStr::from_ptr(error_msg_buf.as_ptr()) };
-            Err(error_msg
-                .to_str()
-                .map_err(|s| format!("Could not parse Faust err msg as utf8: {}", s))?
-                .to_string())
-        } else {
-            *dsp.factory.get_mut() = fac_ptr;
-            let inst_ptr =
-                unsafe { w_createDSPInstance(fac_ptr, sample_rate as i32, nvoices, false) };
-            *dsp.instance.get_mut().unwrap().get_mut() = inst_ptr;
-            dsp.info = unsafe { w_getDSPInfo(inst_ptr) };
-            *dsp.chan_ptrs.vec.get_mut() =
-                vec![null_mut(); dsp.info.num_inputs.max(dsp.info.num_outputs) as usize];
-            let mut widgets_builder = DspWidgetsBuilder::new();
-            *dsp.uis.get_mut() = unsafe {
-                w_createUIs(
-                    inst_ptr,
-                    (&mut widgets_builder) as *mut DspWidgetsBuilder as *mut c_void,
-                )
-            };
-            widgets_builder.build_widgets(dsp.widgets.get_mut().unwrap());
-            Ok(dsp)
-        }
+        widgets_builder.build_widgets(dsp.widgets.get_mut().unwrap());
+        Ok(dsp)
     }
 
     /// If another thread is calling with_mut_widgets, this will wait until it
@@ -253,4 +230,74 @@ impl SingletonDsp {
             w_computeBuffer(dsp.load(Ordering::Relaxed), samples, ptr_vec.as_mut_ptr());
         }
     }
+}
+
+fn read_or_create_factory(
+    opt_cache: Option<Cache>,
+    script_path: &Path,
+    import_paths: &[&Path],
+) -> Result<*mut WFactory, String> {
+    let mut error_msg_buf = [0; 4096];
+    let fac_ptr = match opt_cache {
+        Some(cache) => {
+            let res_id = Cache::hash_input(script_path).map_err(|e| e.to_string())?;
+            match cache.query(res_id) {
+                CacheCheck::Hit(folder) => unsafe {
+                    w_readFactoryFromFolder(
+                        path_to_cstring(&folder)?.as_ptr(),
+                        error_msg_buf.as_mut_ptr(),
+                    )
+                },
+                CacheCheck::Miss(writer) => {
+                    let fac_ptr =
+                        create_new_factory(script_path, import_paths, &mut error_msg_buf)?;
+                    writer.with_dest_folder(|folder| {
+                        unsafe {
+                            w_writeFactoryToFolder(fac_ptr, path_to_cstring(folder)?.as_ptr());
+                        };
+                        Ok::<_, String>(fac_ptr)
+                    })?
+                }
+            }
+        }
+        None => create_new_factory(script_path, import_paths, &mut error_msg_buf)?,
+    };
+    if fac_ptr.is_null() {
+        let error_msg = unsafe { CStr::from_ptr(error_msg_buf.as_ptr()) };
+        Err(error_msg
+            .to_str()
+            .map_err(|s| format!("Could not parse Faust err msg as utf8: {}", s))?
+            .to_string())
+    } else {
+        Ok(fac_ptr)
+    }
+}
+
+fn create_new_factory(
+    script_path: &Path,
+    import_paths: &[&Path],
+    error_msg_buf: &mut [c_char; 4096],
+) -> Result<*mut WFactory, String> {
+    let script_parent_folder = script_path
+        .parent()
+        .ok_or("Parent folder of script couldn't be found")?;
+    let script_path = path_to_cstring(script_path)?;
+    let mut args = vec![
+        c"--in-place".to_owned(),
+        c"-I".to_owned(),
+        path_to_cstring(script_parent_folder)?,
+    ];
+    for folder in import_paths {
+        args.push(c"-I".to_owned());
+        args.push(path_to_cstring(folder)?);
+    }
+    let mut args_ptrs: Vec<_> = args.iter().map(|cstring| cstring.as_ptr()).collect();
+    Ok(unsafe {
+        w_createDSPFactoryFromFile(
+            script_path.as_ptr(),
+            args_ptrs.len() as i32,
+            args_ptrs.as_mut_ptr(),
+            error_msg_buf.as_mut_ptr(),
+        )
+    })
 }

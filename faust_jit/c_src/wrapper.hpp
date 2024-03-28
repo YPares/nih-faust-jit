@@ -6,13 +6,17 @@
 #ifndef WRAPPER_HPP
 #define WRAPPER_HPP
 
-struct llvm_dsp_poly_factory;
+struct dsp_poly_factory;
 struct timed_dsp;
 
-typedef llvm_dsp_poly_factory WFactory;
+typedef dsp_poly_factory WFactory;
 typedef timed_dsp WDsp;
 
 WFactory *w_createDSPFactoryFromFile(const char *filepath, const int argc, const char *argv[], char *err_msg_c);
+
+void w_writeFactoryToFolder(WFactory *factory, const char *folder);
+
+WFactory *w_readFactoryFromFolder(const char *folder, char *err_msg_c);
 
 void w_deleteDSPFactory(WFactory *factory);
 

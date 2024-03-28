@@ -1,5 +1,4 @@
 #include "wrapper.hpp"
-// #include "callbacks.h"
 
 #include <faust/dsp/libfaust.h>
 #include <faust/dsp/dsp.h>
@@ -25,6 +24,21 @@ WFactory *w_createDSPFactoryFromFile(const char *filepath, const int argc, const
 {
     std::string err_msg;
     WFactory *fac = createPolyDSPFactoryFromFile(filepath, argc, argv, "", err_msg, -1);
+    strncpy(err_msg_c, err_msg.c_str(), 4096);
+    return fac;
+}
+
+void w_writeFactoryToFolder(WFactory *factory, const char *folder)
+{
+    auto prefix = std::string(folder) + "/code";
+    writePolyDSPFactoryToMachineFile(factory, prefix, "");
+}
+
+WFactory *w_readFactoryFromFolder(const char *folder, char *err_msg_c)
+{
+    auto prefix = std::string(folder) + "/code";
+    std::string err_msg;
+    WFactory *fac = readPolyDSPFactoryFromMachineFile(prefix, "", err_msg);
     strncpy(err_msg_c, err_msg.c_str(), 4096);
     return fac;
 }
