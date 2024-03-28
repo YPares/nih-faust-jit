@@ -1,4 +1,5 @@
 use chksum_sha1 as sha1;
+use sha1::{Chksumable, SHA1};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -23,15 +24,22 @@ impl Cache {
         Self { root: cache_folder }
     }
 
-    /// Hash the input file of some computation
-    pub fn hash_input(file: &Path) -> Result<ResultId, sha1::Error> {
-        let file = fs::File::open(file)?;
-        Ok(ResultId(sha1::chksum(file)?))
+    /// Hash the inputs of some computation. T can just be &Path
+    pub fn hash_input<T: Chksumable + Clone>(
+        mut input: T,
+        other_inputs: &[T],
+    ) -> Result<ResultId, sha1::Error> {
+        let mut sha1 = SHA1::new();
+        input.chksum_with(&mut sha1)?;
+        for p in other_inputs {
+            p.clone().chksum_with(&mut sha1)?;
+        }
+        Ok(ResultId(sha1.digest()))
     }
 
     /// Query if a computation's result is already in cache. If not, returns a
     /// way to write the result
-    pub fn query(self, ResultId(digest): ResultId) -> CacheCheck {
+    pub fn query(&self, ResultId(digest): ResultId) -> CacheCheck {
         let mut final_dir = self.root.clone();
         final_dir.push(digest.to_hex_lowercase());
         if final_dir.exists() {

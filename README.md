@@ -35,7 +35,7 @@ instruments but do not contain a `[nvoices:xxx]` metadata.
 First install [Rust](https://rustup.rs/) and [Faust](https://faust.grame.fr/downloads/).
 
 For now, Faust paths need to be provided through environment variables at build
-time:
+time. The **build time** environment variables are:
 
 - `FAUST_LIB`: which `libfaustXXX` to link with. By default it statically links
   with `libfaustwithllvm` in order to generate a self-contained plugin (which is
@@ -49,6 +49,11 @@ time:
 - `DSP_LIBS_PATH`: where the plugin should look by default for the [Faust DSP
   libraries](https://faustlibraries.grame.fr/), so your script can import e.g.
   `"stdfaust.lib"`. This can then be overriden at runtime with the plugin's GUI
+- `LLVM_CACHE_FOLDER`: where to cache the llvm bytecode of the scripts, for
+  shorter reload times. This variable must be set, but can be an empty string if
+  you do not want to use caching. This folder will be created if it doesn't
+  exist, so you can just delete it to flush the cache. **Caching is based only
+  on the contents of the script itself, not on what it may import**.
 
 You can set these env vars via command line, or edit the `.cargo/config.toml`
 before building. You may need to run `cargo clean` after changing them so new

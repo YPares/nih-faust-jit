@@ -4,7 +4,10 @@ use nih_plug::{
     prelude::*,
 };
 use serde::{Deserialize, Serialize};
-use std::sync::{atomic::Ordering, Arc, RwLock};
+use std::{
+    path::PathBuf,
+    sync::{atomic::Ordering, Arc, RwLock},
+};
 
 mod editor;
 
@@ -149,6 +152,14 @@ impl Plugin for NihFaustJit {
         let dsp_nvoices_arc = Arc::clone(&self.params.dsp_nvoices);
         let dsp_state_arc = Arc::clone(&self.dsp_state);
 
+        let cache_folder = env!("LLVM_CACHE_FOLDER"); // Build-time env var
+        let opt_cache = if cache_folder.is_empty() {
+            None
+        } else {
+            log!(Level::Info, "Caching llvm bytecode in {}", cache_folder);
+            Some(faust_jit::Cache::new(PathBuf::from(cache_folder)))
+        };
+
         Box::new(move |task| match task {
             Tasks::ReloadDsp => {
                 let sample_rate = sample_rate_arc.load(Ordering::Relaxed);
@@ -157,7 +168,7 @@ impl Plugin for NihFaustJit {
                 let new_dsp_state = match &selected_paths.dsp_script {
                     Some(script_path) => {
                         match faust_jit::SingletonDsp::from_file(
-                            None,
+                            opt_cache.as_ref(),
                             script_path,
                             &[&selected_paths.dsp_lib_path],
                             sample_rate,

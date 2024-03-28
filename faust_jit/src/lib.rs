@@ -107,7 +107,7 @@ impl SingletonDsp {
     /// reloading the same DSP in a future execution. IMPORTANT: That cache
     /// takes into account only the contents of the script, NOT what it imports
     pub fn from_file(
-        opt_cache: Option<Cache>,
+        opt_cache: Option<&Cache>,
         script_path: &Path,
         import_paths: &[&Path],
         sample_rate: f32,
@@ -233,14 +233,16 @@ impl SingletonDsp {
 }
 
 fn read_or_create_factory(
-    opt_cache: Option<Cache>,
+    opt_cache: Option<&Cache>,
     script_path: &Path,
     import_paths: &[&Path],
 ) -> Result<*mut WFactory, String> {
     let mut error_msg_buf = [0; 4096];
     let fac_ptr = match opt_cache {
         Some(cache) => {
-            let res_id = Cache::hash_input(script_path).map_err(|e| e.to_string())?;
+            // We are not including import_paths in the hash as it takes too
+            // long too hash. Improve this later
+            let res_id = Cache::hash_input(script_path, &[]).map_err(|e| e.to_string())?;
             match cache.query(res_id) {
                 CacheCheck::Hit(folder) => unsafe {
                     w_readFactoryFromFolder(
