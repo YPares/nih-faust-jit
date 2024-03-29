@@ -38,11 +38,40 @@ impl std::fmt::Debug for ChanPtrs {
     }
 }
 
+/// How to load a DSP
+pub enum DspLoadMode {
+    /// Use the script metadata
+    AutoDetect,
+    /// Monophonic (always alive) effect
+    Effect,
+    /// Polyphonic instrument with max number of voices
+    Instrument { nvoices: i32 },
+}
+
+impl DspLoadMode {
+    pub fn from_nvoices(nvoices: i32) -> Self {
+        assert!(nvoices >= -1, "DspLoadMode: nvoices must be >= -1");
+        match nvoices {
+            -1 => Self::AutoDetect,
+            0 => Self::Effect,
+            _ => Self::Instrument { nvoices },
+        }
+    }
+    pub fn to_nvoices(&self) -> i32 {
+        match self {
+            Self::AutoDetect => -1,
+            Self::Effect => 0,
+            Self::Instrument { nvoices } => *nvoices,
+        }
+    }
+}
+
 #[derive(Debug)]
 /// RAII interface to faust DSP factories and instances
 pub struct SingletonDsp {
-    sample_rate: f32,
     transport_already_playing: AtomicBool,
+    /// The factory pointer is kept around only to be deallocated when its time
+    /// to drop the SingletonDsp
     factory: AtomicPtr<WFactory>,
     /// The DSP instance is mutex-protected, as we don't want its compute
     /// function being called by two threads at the same time
@@ -54,7 +83,8 @@ pub struct SingletonDsp {
     /// contained inside the WDsp object).
     widgets: RwLock<Vec<DspWidget<&'static mut f32>>>,
     chan_ptrs: ChanPtrs,
-    /// Tells how many input & output audio channels this DSP expects
+    /// Tells the sample rate and how many input & output audio channels this
+    /// DSP expects
     pub info: DspInfo,
 }
 // AtomicPtr is used above only to make the pointers (and thus the whole type)
@@ -67,13 +97,13 @@ impl Drop for SingletonDsp {
             if !instance.is_null() {
                 w_deleteDSPInstance(*instance);
             }
-            let factory = self.factory.get_mut();
-            if !factory.is_null() {
-                w_deleteDSPFactory(*factory);
-            }
             let uis = self.uis.get_mut();
             if !uis.is_null() {
                 w_deleteUIs(*uis);
+            }
+            let factory = self.factory.get_mut();
+            if !factory.is_null() {
+                w_deleteDSPFactory(*factory);
             }
         }
     }
@@ -95,6 +125,95 @@ fn path_to_cstring(p: &Path) -> Result<CString, String> {
 }
 
 impl SingletonDsp {
+    fn new_empty() -> Self {
+        Self {
+            transport_already_playing: AtomicBool::new(false),
+            factory: AtomicPtr::new(null_mut()),
+            instance: Mutex::new(AtomicPtr::new(null_mut())),
+            uis: AtomicPtr::new(null_mut()),
+            widgets: RwLock::new(vec![]),
+            chan_ptrs: ChanPtrs {
+                vec: RefCell::new(vec![]),
+            },
+            info: DspInfo {
+                sample_rate: 0,
+                num_inputs: 0,
+                num_outputs: 0,
+            },
+        }
+    }
+
+    fn add_factory(
+        &mut self,
+        opt_cache: Option<&Cache>,
+        script_path: &Path,
+        import_paths: &[&Path],
+    ) -> Result<(), String> {
+        let mut error_msg_buf = [0; 4096];
+        let fac_ptr = match opt_cache {
+            Some(cache) => {
+                // We are not including import_paths in the hash as it takes too
+                // long too hash. Improve this later
+                let res_id = Cache::hash_input(script_path, &[]).map_err(|e| e.to_string())?;
+                match cache.query(res_id) {
+                    CacheCheck::Hit(folder) => unsafe {
+                        w_readFactoryFromFolder(
+                            path_to_cstring(&folder)?.as_ptr(),
+                            error_msg_buf.as_mut_ptr(),
+                        )
+                    },
+                    CacheCheck::Miss(writer) => {
+                        let fac_ptr =
+                            new_factory_from_file(script_path, import_paths, &mut error_msg_buf)?;
+                        writer.with_dest_folder(|folder| {
+                            unsafe {
+                                w_writeFactoryToFolder(fac_ptr, path_to_cstring(folder)?.as_ptr());
+                            };
+                            Ok::<_, String>(fac_ptr)
+                        })?
+                    }
+                }
+            }
+            None => new_factory_from_file(script_path, import_paths, &mut error_msg_buf)?,
+        };
+        if fac_ptr.is_null() {
+            let error_msg = unsafe { CStr::from_ptr(error_msg_buf.as_ptr()) };
+            Err(error_msg
+                .to_str()
+                .map_err(|s| format!("Could not parse Faust err msg as utf8: {}", s))?
+                .to_string())
+        } else {
+            *self.factory.get_mut() = fac_ptr;
+            Ok(())
+        }
+    }
+
+    fn add_instance(&mut self, sample_rate: i32, load_mode: &DspLoadMode) {
+        *self.instance.get_mut().unwrap().get_mut() = unsafe {
+            w_createDSPInstance(
+                *self.factory.get_mut(),
+                sample_rate,
+                load_mode.to_nvoices(),
+                false,
+            )
+        };
+    }
+
+    fn add_info_and_uis(&mut self) {
+        let inst_ptr = *self.instance.get_mut().unwrap().get_mut();
+        self.info = unsafe { w_getDSPInfo(inst_ptr) };
+        *self.chan_ptrs.vec.get_mut() =
+            vec![null_mut(); self.info.num_inputs.max(self.info.num_outputs) as usize];
+        let mut widgets_builder = DspWidgetsBuilder::new();
+        *self.uis.get_mut() = unsafe {
+            w_createUIs(
+                inst_ptr,
+                (&mut widgets_builder) as *mut DspWidgetsBuilder as *mut c_void,
+            )
+        };
+        widgets_builder.build_widgets(self.widgets.get_mut().unwrap());
+    }
+
     /// Load a faust .dsp file and initialize the DSP
     ///
     /// nvoices controls both the amount of voices and the type of DSP that will
@@ -110,51 +229,73 @@ impl SingletonDsp {
         opt_cache: Option<&Cache>,
         script_path: &Path,
         import_paths: &[&Path],
-        sample_rate: f32,
-        nvoices: i32,
+        sample_rate: i32,
+        load_mode: &DspLoadMode,
     ) -> Result<Self, String> {
-        let mut dsp = Self {
-            sample_rate,
-            transport_already_playing: AtomicBool::new(false),
-            factory: AtomicPtr::new(null_mut()),
-            instance: Mutex::new(AtomicPtr::new(null_mut())),
-            uis: AtomicPtr::new(null_mut()),
-            widgets: RwLock::new(vec![]),
-            chan_ptrs: ChanPtrs {
-                vec: RefCell::new(vec![]),
-            },
-            info: DspInfo {
-                num_inputs: 0,
-                num_outputs: 0,
-            },
-        };
-
-        let fac_ptr = read_or_create_factory(opt_cache, script_path, import_paths)?;
-
-        *dsp.factory.get_mut() = fac_ptr;
-        let inst_ptr = unsafe { w_createDSPInstance(fac_ptr, sample_rate as i32, nvoices, false) };
-        *dsp.instance.get_mut().unwrap().get_mut() = inst_ptr;
-        dsp.info = unsafe { w_getDSPInfo(inst_ptr) };
-        *dsp.chan_ptrs.vec.get_mut() =
-            vec![null_mut(); dsp.info.num_inputs.max(dsp.info.num_outputs) as usize];
-        let mut widgets_builder = DspWidgetsBuilder::new();
-        *dsp.uis.get_mut() = unsafe {
-            w_createUIs(
-                inst_ptr,
-                (&mut widgets_builder) as *mut DspWidgetsBuilder as *mut c_void,
-            )
-        };
-        widgets_builder.build_widgets(dsp.widgets.get_mut().unwrap());
+        let mut dsp = Self::new_empty();
+        dsp.add_factory(opt_cache, script_path, import_paths)?;
+        dsp.add_instance(sample_rate, load_mode);
+        dsp.add_info_and_uis();
         Ok(dsp)
     }
 
-    /// If another thread is calling with_mut_widgets, this will wait until it
-    /// terminates
+    /// Creates a SingletonDsp from an already created `dsp_poly_factory` (the
+    /// Faust C++ class).
+    ///
+    /// owns_factory tells whether the ownership of the factory is transmitted
+    /// to the SingletonDsp, and therefore if the factory should be deleted when
+    /// the SingletonDsp goes out of scope. If not, it is up to you to make sure
+    /// the factory stays allocated as long as the SingletonDsp is in use.
+    ///
+    /// This allows to use SingletonDsp and DspWidgets with DSPs/DSP factories
+    /// obtained from other means than llvm JIT compilation (for instance a DSP
+    /// compiled statically with faust2rust).
+    ///
+    /// IMPORTANT: If your application already defines the faust static
+    /// variables `std::list<GUI *> GUI::fGuiList` and `ztimedmap
+    /// GUI::gTimedZoneMap`, do not forget to build this crate WITHOUT the
+    /// default features, so it does not try to create them too.
+    pub fn from_poly_factory_ptr(
+        factory_ptr: *mut WFactory,
+        owns_factory: bool,
+        sample_rate: i32,
+        load_mode: &DspLoadMode,
+    ) -> Self {
+        let mut dsp = Self::new_empty();
+        *dsp.factory.get_mut() = factory_ptr;
+        dsp.add_instance(sample_rate, load_mode);
+        dsp.add_info_and_uis();
+        if !owns_factory {
+            // We don't own the factory and therefore don't keep its pointer
+            *dsp.factory.get_mut() = null_mut();
+        }
+        dsp
+    }
+
+    /// Creates a SingletonDsp from an already created instance of a subclass of
+    /// `dsp` (the Faust C++ class), preferably wrapped in `timed_dsp` to
+    /// benefit from timestamping of MIDI events.
+    ///
+    /// SingletonDsp takes ownership of the `dsp` instance (this is needed to
+    /// create & destroy the UIs properly) and WILL delete it when the
+    /// SingletonDsp goes out of scope, so you may NOT use the dsp pointer after
+    /// calling this function
+    ///
+    /// See from_poly_factory_ptr doc for more information.
+    pub fn from_dsp_ptr(dsp_ptr: *mut WDsp) -> Self {
+        let mut dsp = Self::new_empty();
+        *dsp.instance.get_mut().unwrap().get_mut() = dsp_ptr;
+        dsp.add_info_and_uis();
+        dsp
+    }
+
+    /// If another thread is currently calling with_widgets_mut, this will wait
+    /// until it terminates
     pub fn with_widgets<T>(&self, f: impl FnOnce(&[DspWidget<&mut f32>]) -> T) -> T {
         f(&*self.widgets.read().unwrap())
     }
 
-    /// If another thread is already calling with_mut_widgets, this will wait
+    /// If another thread is already calling with_widgets_mut, this will wait
     /// until it terminates
     pub fn with_widgets_mut<T>(&self, f: impl FnOnce(&mut [DspWidget<&mut f32>]) -> T) -> T {
         f(&mut *self.widgets.write().unwrap())
@@ -181,7 +322,7 @@ impl SingletonDsp {
 
             // We generate and send to the DSP a 24 PPQN clock:
             if let Some(clock_data) = opt_clock_data {
-                let samples_per_beat = (self.sample_rate as f64) * 60.0 / clock_data.tempo;
+                let samples_per_beat = (self.info.sample_rate as f64) * 60.0 / clock_data.tempo;
                 let samples_per_pulse = (samples_per_beat / 24.0) as i64;
 
                 // next_pulse_pos is in buffer coordinates (ie. 0 is the first sample of
@@ -227,55 +368,12 @@ impl SingletonDsp {
             ptr_vec[i] = audio_bufs[i].as_mut_ptr()
         }
         unsafe {
-            w_computeBuffer(dsp.load(Ordering::Relaxed), samples, ptr_vec.as_mut_ptr());
+            w_computeDSP(dsp.load(Ordering::Relaxed), samples, ptr_vec.as_mut_ptr());
         }
     }
 }
 
-fn read_or_create_factory(
-    opt_cache: Option<&Cache>,
-    script_path: &Path,
-    import_paths: &[&Path],
-) -> Result<*mut WFactory, String> {
-    let mut error_msg_buf = [0; 4096];
-    let fac_ptr = match opt_cache {
-        Some(cache) => {
-            // We are not including import_paths in the hash as it takes too
-            // long too hash. Improve this later
-            let res_id = Cache::hash_input(script_path, &[]).map_err(|e| e.to_string())?;
-            match cache.query(res_id) {
-                CacheCheck::Hit(folder) => unsafe {
-                    w_readFactoryFromFolder(
-                        path_to_cstring(&folder)?.as_ptr(),
-                        error_msg_buf.as_mut_ptr(),
-                    )
-                },
-                CacheCheck::Miss(writer) => {
-                    let fac_ptr =
-                        create_new_factory(script_path, import_paths, &mut error_msg_buf)?;
-                    writer.with_dest_folder(|folder| {
-                        unsafe {
-                            w_writeFactoryToFolder(fac_ptr, path_to_cstring(folder)?.as_ptr());
-                        };
-                        Ok::<_, String>(fac_ptr)
-                    })?
-                }
-            }
-        }
-        None => create_new_factory(script_path, import_paths, &mut error_msg_buf)?,
-    };
-    if fac_ptr.is_null() {
-        let error_msg = unsafe { CStr::from_ptr(error_msg_buf.as_ptr()) };
-        Err(error_msg
-            .to_str()
-            .map_err(|s| format!("Could not parse Faust err msg as utf8: {}", s))?
-            .to_string())
-    } else {
-        Ok(fac_ptr)
-    }
-}
-
-fn create_new_factory(
+fn new_factory_from_file(
     script_path: &Path,
     import_paths: &[&Path],
     error_msg_buf: &mut [c_char; 4096],

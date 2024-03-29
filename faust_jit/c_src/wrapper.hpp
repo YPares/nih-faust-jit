@@ -7,10 +7,10 @@
 #define WRAPPER_HPP
 
 struct dsp_poly_factory;
-struct timed_dsp;
+struct dsp;
 
 typedef dsp_poly_factory WFactory;
-typedef timed_dsp WDsp;
+typedef dsp WDsp;
 
 WFactory *w_createDSPFactoryFromFile(const char *filepath, const int argc, const char *argv[], char *err_msg_c);
 
@@ -41,13 +41,14 @@ WDsp *w_createDSPInstance(WFactory *factory, int sample_rate, int nvoices, bool 
 
 struct DspInfo
 {
+    int sample_rate;
     int num_inputs;
     int num_outputs;
 };
 
 DspInfo w_getDSPInfo(WDsp *dsp);
 
-void w_computeBuffer(WDsp *dsp, int count, float **buf);
+void w_computeDSP(WDsp *dsp, int count, float **buf);
 
 void w_deleteDSPInstance(WDsp *dsp);
 
