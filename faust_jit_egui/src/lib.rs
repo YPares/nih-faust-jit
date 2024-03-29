@@ -1,5 +1,5 @@
 use egui::{Align, Layout, Sense};
-use faust_jit::widgets::*;
+use faust_jit::*;
 
 fn hgroup_header_icon(ui: &mut egui::Ui, openness: f32, response: &egui::Response) {
     let stroke = ui.style().interact(&response).fg_stroke;

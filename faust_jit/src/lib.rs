@@ -9,14 +9,14 @@ use std::{
     },
 };
 
-use widgets::*;
 use wrapper::*;
 
 pub use cache::*;
+pub use widgets::*;
 pub use wrapper::DspInfo;
 
 mod cache;
-pub mod widgets;
+mod widgets;
 mod wrapper;
 
 /// A vector of pointers (one for each audio buffer), which can be pre-allocated
@@ -215,9 +215,6 @@ impl SingletonDsp {
     }
 
     /// Load a faust .dsp file and initialize the DSP
-    ///
-    /// nvoices controls both the amount of voices and the type of DSP that will
-    /// be loaded. See w_createDSPInstance for more info.
     ///
     /// Adds to the import_paths the parent folder of script_path, so that the
     /// script can import other files using paths relative to itself
