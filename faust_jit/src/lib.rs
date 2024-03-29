@@ -1,3 +1,19 @@
+//! A crate that exposes a high-level interface to libfaust, to load and compute
+//! faust DSP scripts with llvm.
+//!
+//! The main types are:
+//! - [`SingletonDsp`], to create and use a Faust DSP
+//! - [`DspWidget`], that gives a description of the UI that should be created
+//!   from that DSP, and gives mutable access to the internal parameters of the
+//!   DSP.
+//!
+//! This crates takes care of the faust specifics to handle both effect &
+//! instrument (poly or mono) DSPs, as well as passing MIDI events to the DSP
+//! before computing the next audio buffer. It can generate MIDI sync messages
+//! (transport and clock) for you in case your MIDI event source does not
+//! already provide these messages (this is notably the case in the context of a
+//! DAW plugin).
+
 use std::{
     cell::RefCell,
     ffi::{c_char, c_void, CStr, CString},
@@ -156,13 +172,13 @@ impl SingletonDsp {
                 // long too hash. Improve this later
                 let res_id = Cache::hash_input(script_path, &[]).map_err(|e| e.to_string())?;
                 match cache.query(res_id) {
-                    CacheCheck::Hit(folder) => unsafe {
+                    CacheQueryResult::Hit(folder) => unsafe {
                         w_readFactoryFromFolder(
                             path_to_cstring(&folder)?.as_ptr(),
                             error_msg_buf.as_mut_ptr(),
                         )
                     },
-                    CacheCheck::Miss(writer) => {
+                    CacheQueryResult::Miss(writer) => {
                         let fac_ptr =
                             new_factory_from_file(script_path, import_paths, &mut error_msg_buf)?;
                         writer.with_dest_folder(|folder| {
@@ -219,7 +235,7 @@ impl SingletonDsp {
     /// Adds to the import_paths the parent folder of script_path, so that the
     /// script can import other files using paths relative to itself
     ///
-    /// Can use a file-based Cache to store the LLVM bytecode to save time when
+    /// Can use a file-based [`Cache`] to store the LLVM bytecode to save time when
     /// reloading the same DSP in a future execution. IMPORTANT: That cache
     /// takes into account only the contents of the script, NOT what it imports
     pub fn from_file(
@@ -239,14 +255,15 @@ impl SingletonDsp {
     /// Creates a SingletonDsp from an already created `dsp_poly_factory` (the
     /// Faust C++ class).
     ///
-    /// owns_factory tells whether the ownership of the factory is transmitted
-    /// to the SingletonDsp, and therefore if the factory should be deleted when
-    /// the SingletonDsp goes out of scope. If not, it is up to you to make sure
-    /// the factory stays allocated as long as the SingletonDsp is in use.
+    /// `owns_factory` tells whether the ownership of the factory is transmitted
+    /// to the [`SingletonDsp`], and therefore if the factory should be deleted
+    /// when the [`SingletonDsp`] goes out of scope. If not, it is up to you to
+    /// make sure the factory stays allocated as long as the SingletonDsp is in
+    /// use.
     ///
-    /// This allows to use SingletonDsp and DspWidgets with DSPs/DSP factories
-    /// obtained from other means than llvm JIT compilation (for instance a DSP
-    /// compiled statically with faust2rust).
+    /// This allows to use [`SingletonDsp`] and [`DspWidget`] with DSPs/DSP
+    /// factories obtained from other means than llvm JIT compilation (for
+    /// instance a DSP compiled statically with faust2rust).
     ///
     /// IMPORTANT: If your application already defines the faust static
     /// variables `std::list<GUI *> GUI::fGuiList` and `ztimedmap
@@ -269,16 +286,16 @@ impl SingletonDsp {
         dsp
     }
 
-    /// Creates a SingletonDsp from an already created instance of a subclass of
-    /// `dsp` (the Faust C++ class), preferably wrapped in `timed_dsp` to
-    /// benefit from timestamping of MIDI events.
+    /// Creates a [`SingletonDsp`] from an already created instance of a
+    /// subclass of `dsp` (the Faust C++ class), preferably wrapped in
+    /// `timed_dsp` to benefit from timestamping of MIDI events.
     ///
-    /// SingletonDsp takes ownership of the `dsp` instance (this is needed to
-    /// create & destroy the UIs properly) and WILL delete it when the
-    /// SingletonDsp goes out of scope, so you may NOT use the dsp pointer after
-    /// calling this function
+    /// the [`SingletonDsp`] takes ownership of the `dsp` instance (this is
+    /// needed to create & destroy the UIs properly) and WILL delete it when the
+    /// [`SingletonDsp`] goes out of scope, so you may NOT use the dsp pointer
+    /// after calling this function
     ///
-    /// See from_poly_factory_ptr doc for more information.
+    /// See [`Self::from_poly_factory_ptr`] doc for more information.
     pub fn from_dsp_ptr(dsp_ptr: *mut WDsp) -> Self {
         let mut dsp = Self::new_empty();
         *dsp.instance.get_mut().unwrap().get_mut() = dsp_ptr;
@@ -286,19 +303,21 @@ impl SingletonDsp {
         dsp
     }
 
-    /// If another thread is currently calling with_widgets_mut, this will wait
-    /// until it terminates
+    /// If another thread is currently calling [`Self::with_widgets_mut`], this
+    /// will wait until it terminates
     pub fn with_widgets<T>(&self, f: impl FnOnce(&[DspWidget<&mut f32>]) -> T) -> T {
         f(&*self.widgets.read().unwrap())
     }
 
-    /// If another thread is already calling with_widgets_mut, this will wait
-    /// until it terminates
+    /// If another thread is already calling this function, this will wait until
+    /// it terminates
     pub fn with_widgets_mut<T>(&self, f: impl FnOnce(&mut [DspWidget<&mut f32>]) -> T) -> T {
         f(&mut *self.widgets.write().unwrap())
     }
 
     /// To be called for each midi event for the current audio buffer
+    ///
+    /// See [`Self::process_buffers`] for more info
     pub fn handle_raw_midi(&self, timestamp: f64, midi_data: [u8; 3]) {
         let uis = self.uis.load(Ordering::Relaxed);
         unsafe {
@@ -306,7 +325,14 @@ impl SingletonDsp {
         }
     }
 
-    /// Send MIDI clock and play/stop messages to the DSP
+    /// Generate a MIDI clock and MIDI start/stop messages, and send them to the
+    /// DSP
+    ///
+    /// IMPORTANT: Call this ONLY if your MIDI event source does not already
+    /// include these messages (else, simply forward them via
+    /// [`Self::handle_raw_midi`])
+    ///
+    /// See [`Self::process_buffers`] for more info
     pub fn handle_midi_sync(&self, playing: bool, opt_clock_data: &Option<ClockData>) {
         let already_playing = self.transport_already_playing.load(Ordering::Relaxed);
         let uis = self.uis.load(Ordering::Relaxed);
@@ -345,8 +371,8 @@ impl SingletonDsp {
     /// Modifies _in place_ the given channels. Should be called _after_ all
     /// MIDI events for the current audio buffer have been handled.
     ///
-    /// If another thread is already calling process_buffers, this will wait
-    /// until it terminates.
+    /// If another thread is already calling this function, this will wait until
+    /// it terminates.
     ///
     /// The number of expected channels is max(self.info.num_inputs,
     /// self.info.num_outputs):

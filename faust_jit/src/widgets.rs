@@ -6,13 +6,16 @@ use std::{
 };
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+/// Possible layouts of widget containers
 pub enum BoxLayout {
+    /// A faust tgroup box
+    ///
     /// 'selected' is initialized to 0 and can be mutated later to record which
     /// tab is currently opened
-    Tab {
-        selected: usize,
-    },
+    Tab { selected: usize },
+    /// A faust hgroup box
     Horizontal,
+    /// A faust vgroup box
     Vertical,
 }
 
@@ -28,8 +31,11 @@ impl BoxLayout {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+/// Possible layouts of gate-like widgets
 pub enum BoolParamLayout {
+    /// A parameter that should be 1 only when the user holds it (faust button)
     Held,
+    /// A parameter that can be toggled on or off (faust checkbox)
     Checkbox,
 }
 
@@ -44,9 +50,13 @@ impl BoolParamLayout {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+/// Possible layouts of numeric floating-point parameters
 pub enum NumParamLayout {
+    /// A faust nentry
     NumEntry,
+    /// A faust hslider
     HorizontalSlider,
+    /// A faust vslider
     VerticalSlider,
 }
 
@@ -62,8 +72,11 @@ impl NumParamLayout {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+/// Possible layouts of numeric floating-point displays
 pub enum NumDisplayLayout {
+    /// A faust hbargraph
     Horizontal,
+    /// A faust vbargraph
     Vertical,
 }
 
@@ -78,8 +91,8 @@ impl NumDisplayLayout {
 }
 
 #[derive(Debug)]
-/// Metadata for floating-point numerical widgets (common to DspWidget::NumParam
-/// and NumDisplay)
+/// Metadata for floating-point numerical widgets (common to
+/// [`DspWidget::NumParam`] and [`DspWidget::NumDisplay`])
 pub struct NumMetadata {
     /// A suffix to display with the value
     pub unit: Option<String>,
@@ -92,14 +105,15 @@ pub struct NumMetadata {
 }
 
 #[derive(Debug)]
-/// A Rust representation of some widget in a Faust DSP script. The
-/// correspondence is not one-to-one: Faust widgets are grouped in functionally
-/// identical variants (same value type, same metadata) which only differ in
-/// their visual representation. The visual representation to use is contained
-/// for each variant in a 'layout' field whose type depends on the variant (like
-/// NumParamLayout for a NumParam, ie. a Faust slider or nentry), and can be
-/// completed by an additional 'style' field (read from the widget's metadata in
-/// the script).
+/// A Rust representation of some widget in a Faust DSP script
+///
+/// The correspondence is not one-to-one: Faust widgets are grouped in
+/// functionally identical variants (same value type, same metadata) which only
+/// differ in their visual representation. The visual representation to use is
+/// contained for each variant in a 'layout' field whose type depends on the
+/// variant (like [`NumParamLayout`] for a [`DspWidget::NumParam`], ie. a Faust
+/// slider or nentry), and can be completed by an additional 'style' field (read
+/// from the widget's metadata in the script).
 ///
 /// The extra metadata listed for some widget in the DSP script is also
 /// represented by the inner fields of its corresponding DspWidget variant (how
@@ -172,7 +186,8 @@ impl<Z> DspWidget<Z> {
 }
 
 #[derive(Debug, PartialEq)]
-/// A list of (label,value) pairs for Menu and Radio styles
+/// A list of (label,value) pairs for [`NumParamStyle::Menu`] and
+/// [`NumParamStyle::Radio`] styles
 pub struct SelectableVals {
     /// The list of selectable options and their corresponding labels
     pub options: Vec<(String, f32)>,
@@ -231,7 +246,7 @@ enum MetadataElem {
     Tooltip(String),
 }
 
-pub struct DspWidgetsBuilder {
+pub(crate) struct DspWidgetsBuilder {
     widget_decls: VecDeque<(String, WWidgetDecl)>,
     metadata_map: HashMap<*mut f32, Vec<MetadataElem>>,
 }
@@ -254,14 +269,16 @@ impl<'a> Zone for &'a mut f32 {
 }
 
 impl DspWidgetsBuilder {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             widget_decls: VecDeque::new(),
             metadata_map: HashMap::new(),
         }
     }
 
-    pub fn build_widgets<Z: Zone>(mut self, widget_list: &mut Vec<DspWidget<Z>>) {
+    /// To be called _after_ faust's buildUserInterface has finished, ie. after
+    /// w_createUIs has finished. 'a is the lifetime of the DSP itself
+    pub(crate) fn build_widgets<Z: Zone>(mut self, widget_list: &mut Vec<DspWidget<Z>>) {
         self.build_widgets_rec(widget_list);
         assert!(
             self.widget_decls.is_empty(),
@@ -269,8 +286,6 @@ impl DspWidgetsBuilder {
         );
     }
 
-    /// To be called _after_ faust's buildUserInterface has finished, ie. after
-    /// w_createUIs has finished. 'a is the lifetime of the DSP itself
     fn build_widgets_rec<Z: Zone>(&mut self, cur_level: &mut Vec<DspWidget<Z>>) {
         use MetadataElem as ME;
         use WWidgetDeclType as W;
@@ -348,7 +363,7 @@ impl DspWidgetsBuilder {
     }
 }
 
-// The cpp wrapper-lib will link with these:
+// The C++ wrapper-lib will link with these functions:
 
 #[no_mangle]
 extern "C" fn rs_declare_widget(
