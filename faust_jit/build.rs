@@ -48,10 +48,12 @@ fn main() {
         .write_to_file(out_path.join("bindings.rs"))
         .expect("Couldn't write bindings!");
 
-    cc::Build::new()
-        .cpp(true)
+    let mut cc = cc::Build::new();
+    cc.cpp(true)
         .std("c++14")
         .include(faust_headers_path)
-        .file("c_src/wrapper.cpp")
-        .compile("wrapper-lib");
+        .file("c_src/wrapper.cpp");
+    #[cfg(feature = "define_faust_static_vars")]
+    cc.define("DEFINE_FAUST_STATIC_VARS", "");
+    cc.compile("wrapper-lib");
 }

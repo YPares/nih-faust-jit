@@ -90,6 +90,7 @@ pub enum Tasks {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, strum_macros::EnumIter)]
+// We don't reuse faust_jit::DspLoadMode because we need a pure enum here
 pub enum DspType {
     AutoDetect,
     Effect,
@@ -98,13 +99,10 @@ pub enum DspType {
 
 impl DspType {
     fn from_nvoices(nvoices: i32) -> Self {
-        match nvoices {
-            -1 => DspType::AutoDetect,
-            0 => DspType::Effect,
-            n => {
-                assert!(n > 0, "nvoices must be >= -1");
-                DspType::Instrument
-            }
+        match faust_jit::DspLoadMode::from_nvoices(nvoices) {
+            faust_jit::DspLoadMode::AutoDetect => DspType::AutoDetect,
+            faust_jit::DspLoadMode::Effect => DspType::Effect,
+            faust_jit::DspLoadMode::Instrument { nvoices: _ } => DspType::Instrument,
         }
     }
 }
@@ -171,8 +169,8 @@ impl Plugin for NihFaustJit {
                             opt_cache.as_ref(),
                             script_path,
                             &[&selected_paths.dsp_lib_path],
-                            sample_rate,
-                            dsp_nvoices,
+                            sample_rate as i32,
+                            &faust_jit::DspLoadMode::from_nvoices(dsp_nvoices),
                         ) {
                             Err(msg) => DspState::Failed(msg),
                             Ok(dsp) => {

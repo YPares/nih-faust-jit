@@ -13,12 +13,12 @@
 #include <faust/midi/midi.h>
 #include <faust/gui/MidiUI.h>
 
-#include <faust/gui/MetaDataUI.h>
-
+#ifdef DEFINE_FAUST_STATIC_VARS
 // These static vars must be declared in the application code. See
 // https://faustdoc.grame.fr/manual/architectures/#multi-controller-and-synchronization
 std::list<GUI *> GUI::fGuiList;
 ztimedmap GUI::gTimedZoneMap;
+#endif
 
 WFactory *w_createDSPFactoryFromFile(const char *filepath, const int argc, const char *argv[], char *err_msg_c)
 {
@@ -82,10 +82,10 @@ WDsp *w_createDSPInstance(WFactory *factory, int sample_rate, int nvoices, bool 
 
 DspInfo w_getDSPInfo(WDsp *dsp)
 {
-    return {dsp->getNumInputs(), dsp->getNumOutputs()};
+    return {dsp->getSampleRate(), dsp->getNumInputs(), dsp->getNumOutputs()};
 }
 
-void w_computeBuffer(WDsp *dsp, int count, float **buf)
+void w_computeDSP(WDsp *dsp, int count, float **buf)
 {
     // We used --in-place when creating the DSP, so input and output should
     // be the same pointer

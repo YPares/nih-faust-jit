@@ -18,3 +18,7 @@ rand = "0.8.*"
 cc = "1.0.*"
 bindgen = "0.69.*"
 glob = "0.3.*"
+
+[features]
+"define_faust_static_vars" = []
+"default" = ["define_faust_static_vars"]
