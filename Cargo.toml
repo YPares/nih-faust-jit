@@ -5,6 +5,7 @@ members = [
     "faust_jit_egui",
     "nih_faust_jit",
     "nih_faust_jit/xtask",
+    "cpal_faust_jit",
 ]
 
 [profile.release]

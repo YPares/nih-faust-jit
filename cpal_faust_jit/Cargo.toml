@@ -1,0 +1,22 @@
+[package]
+name = "cpal_faust_jit"
+version = "0.1.0"
+edition = "2021"
+authors = ["Yves Pares <yves.pares@gmail.com>"]
+license = "ISC"
+homepage = "https://github.com/YPares/nih-faust-jit"
+description = "Loading Faust DSP scripts"
+
+[[bin]]
+name = "cpal_faust_jit"
+
+[dependencies]
+faust_jit = { path = "../faust_jit" }
+faust_jit_egui = { path = "../faust_jit_egui" }
+eframe = "0.27.*"
+cpal = "*"
+egui_file = "0.17.*"
+serde = "*"
+crossbeam = "*"
+strum = "*"
+strum_macros = "*"
