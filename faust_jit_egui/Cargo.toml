@@ -12,4 +12,4 @@ crate-type = ["lib"]
 
 [dependencies]
 faust_jit = { path = "../faust_jit" }
-egui = "0.26.*"
+egui = "0.27.*"

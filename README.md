@@ -72,6 +72,19 @@ Running the standalone version of the plugin is just:
 cargo run --release
 ```
 
+On Windows, if you are getting an error like:
+
+```
+thread 'cpal_wasapi_out' panicked at 'Received 1056 samples, while the configured buffer size is 512'
+```
+
+when using the standalone exe with the default WASAPI audio backend, it means
+you should set the buffer size with:
+
+```shell
+cargo run --release -- -p 1056
+```
+
 ## Known shortcomings
 
 - Scripts are reloaded only when clicking on the `Set or reload DSP script`

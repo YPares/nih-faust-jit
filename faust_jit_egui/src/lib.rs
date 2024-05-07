@@ -109,7 +109,7 @@ fn faust_widgets_ui_rec(ui: &mut egui::Ui, widgets: &mut [DspWidget<&mut f32>], 
                         if resp.drag_started() {
                             // If the button just started to be held:
                             **zone = 1.0;
-                        } else if resp.drag_released() {
+                        } else if resp.drag_stopped() {
                             // If the button was just released:
                             **zone = 0.0;
                         }

@@ -23,7 +23,7 @@ nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", features = [
     "standalone",
 ] }
 nih_plug_egui = { git = "https://github.com/robbert-vdh/nih-plug.git" }
-egui_file = "0.16.*"
+egui_file = "0.17.*"
 serde = "*"
 crossbeam = "*"
 strum = "0.26.*"
