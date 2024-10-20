@@ -80,6 +80,10 @@ WDsp *w_createDSPInstance(WFactory *factory, int sample_rate, int nvoices, bool 
     return dsp;
 }
 
+WDsp *w_cloneDSPInstance(WDsp *dsp) {
+    return dsp->clone();
+}
+
 DspInfo w_getDSPInfo(WDsp *dsp)
 {
     return {dsp->getSampleRate(), dsp->getNumInputs(), dsp->getNumOutputs()};

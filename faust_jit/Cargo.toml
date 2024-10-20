@@ -13,6 +13,7 @@ crate-type = ["lib"]
 [dependencies]
 chksum-sha1 = "*"
 rand = "*"
+fundsp = { version = "*", optional = true }
 
 [build-dependencies]
 cc = "*"
@@ -20,5 +21,6 @@ bindgen = "*"
 glob = "*"
 
 [features]
-"define_faust_static_vars" = []
 "default" = ["define_faust_static_vars"]
+"define_faust_static_vars" = []
+"fundsp" = ["dep:fundsp"]

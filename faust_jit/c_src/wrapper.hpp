@@ -39,6 +39,8 @@ void w_deleteDSPFactory(WFactory *factory);
 //
 WDsp *w_createDSPInstance(WFactory *factory, int sample_rate, int nvoices, bool group_voices);
 
+WDsp *w_cloneDSPInstance(WDsp *dsp);
+
 /* Information about the currently loaded DSP
  */
 struct DspInfo

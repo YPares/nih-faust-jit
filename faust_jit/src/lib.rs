@@ -21,17 +21,21 @@ use std::{
     ptr::null_mut,
     sync::{
         atomic::{AtomicBool, AtomicPtr, Ordering},
-        Mutex, RwLock,
+        Arc, Mutex, RwLock,
     },
 };
 
 use wrapper::*;
 
 pub use cache::*;
+#[cfg(feature = "fundsp")]
+pub use fundsp_impl::*;
 pub use widgets::*;
 pub use wrapper::DspInfo;
 
 mod cache;
+#[cfg(feature = "fundsp")]
+mod fundsp_impl;
 mod widgets;
 mod wrapper;
 
@@ -83,12 +87,26 @@ impl DspLoadMode {
 }
 
 #[derive(Debug)]
+struct Factory(AtomicPtr<WFactory>);
+
+impl Drop for Factory {
+    fn drop(&mut self) {
+        let fac = self.0.get_mut();
+        if !fac.is_null() {
+            unsafe {
+                w_deleteDSPFactory(*fac);
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
 /// RAII interface to faust DSP factories and instances
 pub struct SingletonDsp {
     transport_already_playing: AtomicBool,
     /// The factory pointer is kept around only to be deallocated when its time
     /// to drop the SingletonDsp
-    factory: AtomicPtr<WFactory>,
+    factory: Arc<Factory>,
     /// The DSP instance is mutex-protected, as we don't want its compute
     /// function being called by two threads at the same time
     instance: Mutex<AtomicPtr<WDsp>>,
@@ -117,11 +135,22 @@ impl Drop for SingletonDsp {
             if !uis.is_null() {
                 w_deleteUIs(*uis);
             }
-            let factory = self.factory.get_mut();
-            if !factory.is_null() {
-                w_deleteDSPFactory(*factory);
-            }
         }
+    }
+}
+
+/// This copies the DSP part so it becomes its own entity, with its own widgets,
+/// but will point to the same Factory
+impl Clone for SingletonDsp {
+    fn clone(&self) -> Self {
+        let mut clone = Self::new_empty();
+        clone.factory = Arc::clone(&self.factory);
+        let mut instance = self.instance.lock().unwrap();
+        *clone.instance.get_mut().unwrap().get_mut() = unsafe {
+            w_cloneDSPInstance(*instance.get_mut())
+        };
+        clone.add_info_and_uis();
+        clone
     }
 }
 
@@ -144,7 +173,7 @@ impl SingletonDsp {
     fn new_empty() -> Self {
         Self {
             transport_already_playing: AtomicBool::new(false),
-            factory: AtomicPtr::new(null_mut()),
+            factory: Arc::new(Factory(AtomicPtr::new(null_mut()))),
             instance: Mutex::new(AtomicPtr::new(null_mut())),
             uis: AtomicPtr::new(null_mut()),
             widgets: RwLock::new(vec![]),
@@ -199,7 +228,7 @@ impl SingletonDsp {
                 .map_err(|s| format!("Could not parse Faust err msg as utf8: {}", s))?
                 .to_string())
         } else {
-            *self.factory.get_mut() = fac_ptr;
+            *Arc::get_mut(&mut self.factory).unwrap().0.get_mut() = fac_ptr;
             Ok(())
         }
     }
@@ -207,7 +236,7 @@ impl SingletonDsp {
     fn add_instance(&mut self, sample_rate: i32, load_mode: &DspLoadMode) {
         *self.instance.get_mut().unwrap().get_mut() = unsafe {
             w_createDSPInstance(
-                *self.factory.get_mut(),
+                *Arc::get_mut(&mut self.factory).unwrap().0.get_mut(),
                 sample_rate,
                 load_mode.to_nvoices(),
                 false,
@@ -276,12 +305,12 @@ impl SingletonDsp {
         load_mode: &DspLoadMode,
     ) -> Self {
         let mut dsp = Self::new_empty();
-        *dsp.factory.get_mut() = factory_ptr;
+        *Arc::get_mut(&mut dsp.factory).unwrap().0.get_mut() = factory_ptr;
         dsp.add_instance(sample_rate, load_mode);
         dsp.add_info_and_uis();
         if !owns_factory {
             // We don't own the factory and therefore don't keep its pointer
-            *dsp.factory.get_mut() = null_mut();
+            *Arc::get_mut(&mut dsp.factory).unwrap().0.get_mut() = null_mut();
         }
         dsp
     }
