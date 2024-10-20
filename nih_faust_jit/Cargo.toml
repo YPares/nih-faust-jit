@@ -26,5 +26,5 @@ nih_plug_egui = { git = "https://github.com/robbert-vdh/nih-plug.git" }
 egui_file = "0.17.*"
 serde = "*"
 crossbeam = "*"
-strum = "0.26.*"
-strum_macros = "0.26.*"
+strum = "*"
+strum_macros = "*"
