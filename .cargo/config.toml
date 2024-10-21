@@ -4,8 +4,18 @@ xtask = "run --package xtask --release --"
 [env]
 # env vars will be set unless they are already present, so these are just
 # defaults:
+
+# Windows (with faust from default faust installer):
 FAUST_LIB = "static=libfaustwithllvm"
 FAUST_LIB_PATH = "C:/Program Files/Faust/lib"
 FAUST_HEADERS_PATH = "C:/Program Files/Faust/include"
 DSP_LIBS_PATH = "C:/Program Files/Faust/share/faust"
+
+# Ubuntu (with faust from `faust` package):
+# FAUST_LIB = "faust"
+# FAUST_LIB_PATH = "/usr/lib/x86_64-linux-gnu"
+# FAUST_HEADERS_PATH = "/usr/include"
+# DSP_LIBS_PATH = "/usr/share/faust"
+
+# System-independent
 LLVM_CACHE_FOLDER = ""
