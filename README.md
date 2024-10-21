@@ -85,6 +85,26 @@ you should set the buffer size with:
 cargo run --release -- -p 1056
 ```
 
+## Installing via the Nix flake
+
+`nih_faust_jit` is also packaged with Nix. If you are not using NixOS, running the plugin (standalone or not)
+requires your Nix installation to be able to run OpenGL applications, which requires an extra bit of setup.
+You can use [nix-system-graphics](https://github.com/soupglasses/nix-system-graphics) for that effect.
+
+Then, running the standalone exe of the plugin is:
+
+```shell
+nix run . # Runs the default app, which is nih_faust_jit_standalone
+```
+
+and building and packaging the VST3 & CLAP plugins and the standalone exe is:
+
+```shell
+nix build . # Builds the default package, which is nih_faust_jit
+```
+
+which will create a `./result` symlink with two folders, `plugin` and `bin`.
+
 ## Known shortcomings
 
 - Scripts are reloaded only when clicking on the `Set or reload DSP script`
