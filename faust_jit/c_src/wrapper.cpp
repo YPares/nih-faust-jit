@@ -56,12 +56,12 @@ WDsp *w_createDSPInstance(WFactory *factory, int sample_rate, int nvoices, bool 
 
     if (nvoices == -1)
     {
-        // Get 'nvoices' from the metadata declaration. Should no longer be
-        // necessary to do it here manually as from the next Faust release
-        // (createPolyDSPInstance should do it itself).
+        // Get 'nvoices' from the metadata declaration. createPolyDSPInstance
+        // should already be doing it when passing it nvoices==-1, but for some
+        // reason this results in a runtime crash when letting it do the detection...
         dsp *mono_dsp = factory->fProcessFactory->createDSPInstance();
-        bool _midi_sync;
-        MidiMeta::analyse(mono_dsp, _midi_sync, nvoices);
+        bool _midi, _midi_sync;
+        MidiMeta::analyse(mono_dsp, _midi, _midi_sync, nvoices);
         delete mono_dsp;
     }
 
