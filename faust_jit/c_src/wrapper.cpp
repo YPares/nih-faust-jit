@@ -60,8 +60,8 @@ WDsp *w_createDSPInstance(WFactory *factory, int sample_rate, int nvoices, bool 
         // necessary to do it here manually as from the next Faust release
         // (createPolyDSPInstance should do it itself).
         dsp *mono_dsp = factory->fProcessFactory->createDSPInstance();
-        bool _midi_sync;
-        MidiMeta::analyse(mono_dsp, _midi_sync, nvoices);
+        bool _midi, _midi_sync;
+        MidiMeta::analyse(mono_dsp, _midi, _midi_sync, nvoices);
         delete mono_dsp;
     }
 
