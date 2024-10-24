@@ -1,6 +1,12 @@
 {
   description = "Build a cargo project without extra checks";
 
+  nixConfig = {
+    extra-substituters = [ "https://cache.garnix.io" ];
+    extra-trusted-public-keys =
+      [ "cache.garnix.io:CTFPyKSLcx5RMJKfLo5EEPUObbA78b0YQ2DTCJXqr9g=" ];
+  };
+
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
 
@@ -39,17 +45,17 @@
 
         cargoArtifacts = craneLib.buildDepsOnly commonArgs;
 
-        faust_jit = craneLib.buildPackage (commonArgs // {
-          inherit cargoArtifacts;
-          cargoToml = ./faust_jit/Cargo.toml;
-          cargoExtraArgs = "-p faust_jit";
-        });
+        # faust_jit = craneLib.buildPackage (commonArgs // {
+        #   inherit cargoArtifacts;
+        #   cargoToml = ./faust_jit/Cargo.toml;
+        #   cargoExtraArgs = "-p faust_jit";
+        # });
 
-        faust_jit_egui = craneLib.buildPackage (commonArgs // {
-          inherit cargoArtifacts;
-          cargoToml = ./faust_jit_egui/Cargo.toml;
-          cargoExtraArgs = "-p faust_jit_egui";
-        });
+        # faust_jit_egui = craneLib.buildPackage (commonArgs // {
+        #   inherit cargoArtifacts;
+        #   cargoToml = ./faust_jit_egui/Cargo.toml;
+        #   cargoExtraArgs = "-p faust_jit_egui";
+        # });
 
         nih_faust_jit = craneLib.mkCargoDerivation (commonArgs // {
           inherit cargoArtifacts;
@@ -68,10 +74,14 @@
       in {
         packages = {
           default = nih_faust_jit;
-          inherit faust_jit faust_jit_egui nih_faust_jit;
+          inherit # faust_jit faust_jit_egui
+            nih_faust_jit;
         };
 
-        checks = { inherit faust_jit faust_jit_egui nih_faust_jit; };
+        checks = {
+          inherit # faust_jit faust_jit_egui
+            nih_faust_jit;
+        };
 
         apps = rec {
           default = nih_faust_jit_standalone;
