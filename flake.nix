@@ -28,6 +28,14 @@
           DSP_LIBS_PATH = "${pkgs.faust}/share/faust";
         };
 
+        alsa-overriden = with pkgs;
+          alsa-lib-with-plugins.override {
+            plugins = symlinkJoin {
+              name = "alsa-plugins";
+              paths = [ alsa-plugins pipewire ];
+            };
+          };
+
         # Note: changes here will rebuild all dependency crates
         commonArgs = with pkgs; {
           src =
@@ -36,8 +44,7 @@
 
           nativeBuildInputs = [ pkg-config ];
 
-          buildInputs =
-            [ alsa-lib-with-plugins libGL xorg.libX11 libjack2 faust ]
+          buildInputs = [ alsa-overriden libGL xorg.libX11 libjack2 faust ]
             ++ lib.optionals stdenv.isDarwin [ libiconv ];
 
           inherit env;
