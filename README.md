@@ -96,13 +96,13 @@ You can use [nix-system-graphics](https://github.com/soupglasses/nix-system-grap
 Then, running the standalone exe of the plugin is:
 
 ```shell
-nix run . # Runs the default app, which is nih_faust_jit_standalone
+nix run
 ```
 
 and building and packaging the VST3 & CLAP plugins and the standalone exe is:
 
 ```shell
-nix build . # Builds the default package, which is nih_faust_jit
+nix build
 ```
 
 which will create a `./result` symlink with two folders, `plugin` and `bin`.
