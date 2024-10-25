@@ -1,3 +1,5 @@
+[![built with garnix](https://img.shields.io/endpoint.svg?url=https%3A%2F%2Fgarnix.io%2Fapi%2Fbadges%2FYPares%2Fnih-faust-jit)](https://garnix.io/repo/YPares/nih-faust-jit)
+
 # nih-faust-jit
 
 A plugin to load Faust dsp files and JIT-compile them with LLVM. Limited to
