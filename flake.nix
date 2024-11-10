@@ -93,22 +93,34 @@
             cp -R target/bundled $out/plugin
           '';
         });
+
+        # Standalone exe wrapped to use Jack via Pipewire (for Ubuntu notably)
+        nih_faust_jit_pw-jack = pkgs.writeShellApplication {
+            name = "nih_faust_jit_pw-jack";
+            text = ''
+                ${pkgs.pipewire.jack}/bin/pw-jack ${nih_faust_jit}/bin/nih_faust_jit_standalone -b jack "$@"
+            '';
+        };
       in
       {
         packages.${system} = {
           default = nih_faust_jit;
-          inherit faust_jit faust_jit_egui nih_faust_jit toolchain;
+          inherit faust_jit faust_jit_egui nih_faust_jit nih_faust_jit_pw-jack toolchain;
         };
 
         checks.${system} = {
           inherit faust_jit faust_jit_egui nih_faust_jit;
         };
 
-        apps.${system} = rec {
-          default = nih_faust_jit_standalone;
+        apps.${system} = {
+          default = self.apps.${system}.nih_faust_jit_standalone;
           nih_faust_jit_standalone = {
             type = "app";
             program = "${nih_faust_jit}/bin/nih_faust_jit_standalone";
+          };
+          nih_faust_jit_pw-jack = {
+            type = "app";
+            program = "${nih_faust_jit_pw-jack}/bin/nih_faust_jit_pw-jack";
           };
         };
 
