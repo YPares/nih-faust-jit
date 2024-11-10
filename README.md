@@ -107,6 +107,9 @@ nix build
 
 which will create a `./result` symlink with two folders, `plugin` and `bin`.
 
+Re. the standalone version, if you are using a Linux distribution with Pipewire (such as Ubuntu), prefer using the `nih_faust_jit_pipewire` output,
+which wraps `nih_faust_jit_standalone` so it can use either the ALSA or Jack backend via Pipewire (JACK by default).
+
 ## Known shortcomings
 
 - Scripts are reloaded only when clicking on the `Set or reload DSP script`

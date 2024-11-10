@@ -38,14 +38,6 @@
           DSP_LIBS_PATH = "${pkgs.faust}/share/faust";
         };
 
-        alsa-overriden = with pkgs;
-          alsa-lib-with-plugins.override {
-            plugins = symlinkJoin {
-              name = "alsa-plugins";
-              paths = [ alsa-plugins pipewire ];
-            };
-          };
-
         # Note: changes here will rebuild all dependency crates
         commonArgs = with pkgs; {
           src =
@@ -54,7 +46,7 @@
 
           nativeBuildInputs = [ pkg-config ];
 
-          buildInputs = [ alsa-overriden libGL xorg.libX11 libjack2 faust ]
+          buildInputs = [ alsa-lib libGL xorg.libX11 libjack2 faust ]
             ++ lib.optionals stdenv.isDarwin [ libiconv ];
 
           inherit env;
@@ -94,18 +86,19 @@
           '';
         });
 
-        # Standalone exe wrapped to use Jack via Pipewire (for Ubuntu notably)
-        nih_faust_jit_pw-jack = pkgs.writeShellApplication {
-            name = "nih_faust_jit_pw-jack";
+        # Standalone exe wrapped to use Pipewire for ALSA or Jack (for Ubuntu notably)
+        nih_faust_jit_pipewire = pkgs.writeShellApplication {
+            name = "nih_faust_jit_pipewire";
             text = ''
-                ${pkgs.pipewire.jack}/bin/pw-jack ${nih_faust_jit}/bin/nih_faust_jit_standalone -b jack "$@"
+                export ALSA_PLUGIN_DIR=${pkgs.pipewire}/lib/alsa-lib
+                ${pkgs.pipewire.jack}/bin/pw-jack ${nih_faust_jit}/bin/nih_faust_jit_standalone "$@"
             '';
         };
       in
       {
         packages.${system} = {
           default = nih_faust_jit;
-          inherit faust_jit faust_jit_egui nih_faust_jit nih_faust_jit_pw-jack toolchain;
+          inherit faust_jit faust_jit_egui nih_faust_jit nih_faust_jit_pipewire toolchain;
         };
 
         checks.${system} = {
@@ -118,9 +111,13 @@
             type = "app";
             program = "${nih_faust_jit}/bin/nih_faust_jit_standalone";
           };
-          nih_faust_jit_pw-jack = {
+          nih_faust_jit_pipewire = {
             type = "app";
-            program = "${nih_faust_jit_pw-jack}/bin/nih_faust_jit_pw-jack";
+            program = "${nih_faust_jit_pipewire}/bin/nih_faust_jit_pipewire";
+          };
+          pw-jack = {
+            type = "app";
+            program = "${pkgs.pipewire.jack}/bin/pw-jack";
           };
         };
 
